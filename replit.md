@@ -1,6 +1,6 @@
-# [Project name]
+# AgentSOC Security Operations Center
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+AgentSOC is a simulated autonomous cloud security operations center for investigating AWS threats, approving remediation, and reviewing agent decisions.
 
 ## Run & Operate
 
@@ -22,15 +22,21 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/agentsoc/src/App.tsx` — route-driven SOC shell and interactive demo flows
+- `artifacts/agentsoc/src/data.ts` — typed demo incidents, events, agents, approvals, cloud resources, and audit entries
+- `artifacts/agentsoc/src/lib/api.ts` — backend-ready API seam with demo fallback
+- `artifacts/agentsoc/src/index.css` — AgentSOC visual system and responsive layout
+- `artifacts/api-server` — shared Express API service for future FastAPI-compatible endpoints
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The first build is frontend-first and remains fully usable without a running backend.
+- Demo state lives in React state so the simulator, approval center, incident details, and audit log update together during a presentation.
+- `src/lib/api.ts` checks `VITE_API_URL` or `NEXT_PUBLIC_API_URL` when present and falls back to the typed demo data when unavailable.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+AgentSOC presents a command-center view of a simulated AWS environment. Analysts can search and filter incidents and events, inspect attack timelines, follow the five-agent response pipeline, run controlled attack scenarios, approve or reject remediation, and expand the audit trail.
 
 ## User preferences
 

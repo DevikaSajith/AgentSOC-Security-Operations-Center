@@ -1,0 +1,1106 @@
+Build a complete frontend web application called "AgentSOC" — an Autonomous Cloud Security Operations Center.
+
+IMPORTANT:
+This is a B.Tech final-year cybersecurity project. The application must look like a serious, technically advanced Security Operations Center (SOC), NOT a generic SaaS/admin dashboard.
+
+The visual design should be inspired by the attached reference image:
+- black background
+- neon magenta/pink
+- neon lime green
+- futuristic typography
+- thin technical borders
+- subtle glow
+- cyberpunk aesthetic
+- grid/noise textures
+- sharp rectangular panels
+- technical/monospace text
+
+However, DO NOT copy the gaming/community content of the reference. Adapt only its visual style to cybersecurity.
+
+==================================================
+1. TECHNOLOGY
+==================================================
+
+Use:
+
+- React
+- TypeScript
+- Next.js
+- Tailwind CSS
+- shadcn/ui
+- Lucide icons
+- Recharts for charts
+
+Create clean, reusable components.
+
+Structure the project so it can later connect to a FastAPI backend.
+
+Create:
+
+src/lib/api.ts
+
+and use:
+
+NEXT_PUBLIC_API_URL
+
+for the backend URL.
+
+The frontend must initially work even when the backend is unavailable by using clearly separated mock/demo data.
+
+==================================================
+2. PROJECT CONCEPT
+==================================================
+
+AgentSOC monitors a simulated AWS cloud environment and processes security events through multiple specialized AI agents.
+
+Architecture:
+
+AWS Cloud
+    ↓
+Monitor Agent
+    ↓
+PostgreSQL / Event Store
+    ↓
+Triage Agent
+    ↓
+Investigator Agent
+    ↓
+Compliance Agent
+    ↓
+Approval Gate
+    ↓
+Human Approval OR Auto Approval
+    ↓
+Remediation Agent
+    ↓
+Dashboard / Audit Log
+
+The five main agents are:
+
+1. Monitor Agent
+2. Triage Agent
+3. Investigator Agent
+4. Compliance Agent
+5. Remediation Agent
+
+The frontend must visually communicate this pipeline.
+
+==================================================
+3. GLOBAL DESIGN
+==================================================
+
+Background:
+#050505 / near-black
+
+Panels:
+#0B0B0B
+#111111
+
+Primary accent:
+Neon Magenta / Pink
+
+Secondary accent:
+Neon Lime
+
+Text:
+White
+Light gray
+Muted gray
+
+Severity colors:
+Critical → red
+High → orange
+Medium → yellow
+Low → green
+Info → cyan
+
+Use neon colors selectively.
+
+Do NOT make every element glow.
+
+Use:
+- thin borders
+- subtle shadows
+- small glowing indicators
+- scan-line/grid effects
+- technical labels
+- monospace text for logs
+- bold condensed headings
+
+Avoid:
+- excessive rounded cards
+- pastel colors
+- generic corporate blue dashboards
+- excessive gradients
+- excessive animations
+- unnecessary illustrations
+
+The result should feel like a futuristic professional SOC.
+
+==================================================
+4. APPLICATION LAYOUT
+==================================================
+
+Use a fixed left sidebar and a top header.
+
+LEFT SIDEBAR:
+
+Logo:
+
+AGENTSOC
+AUTONOMOUS SOC
+
+Navigation:
+
+◈ Overview
+◉ Incidents
+◇ Events
+◎ Agents
+⚠ Approvals
+☁ Cloud Environment
+⚔ Attack Simulator
+◫ Analytics
+◌ Audit Log
+
+Bottom of sidebar:
+
+SYSTEM STATUS
+● ONLINE
+
+The currently selected page should have a neon magenta/lime indicator.
+
+==================================================
+5. TOP HEADER
+==================================================
+
+Display:
+
+AGENTSOC / SECURITY OPERATIONS CENTER
+
+Right side:
+
+● SYSTEM ONLINE
+LAST SYNC: 21:47:32
+Notification icon
+Refresh button
+User/profile button
+
+The refresh button should actually refresh dashboard data.
+
+==================================================
+6. OVERVIEW DASHBOARD
+==================================================
+
+This is the main landing page.
+
+Header:
+
+SECURITY OPERATIONS CENTER
+
+Subtitle:
+
+Real-time cloud threat monitoring and autonomous response
+
+Buttons:
+
+[ RUN ATTACK SIMULATION ]
+[ REFRESH ]
+
+Create statistics cards:
+
+TOTAL EVENTS
+1,284
+
+ACTIVE INCIDENTS
+07
+
+CRITICAL INCIDENTS
+02
+
+PENDING APPROVALS
+03
+
+Each card should have:
+- icon
+- number
+- short status
+- subtle visual indicator
+
+==================================================
+7. THREAT ACTIVITY
+==================================================
+
+Create a large Recharts graph titled:
+
+THREAT ACTIVITY — LAST 24 HOURS
+
+Show simulated security events over time.
+
+Controls:
+
+[ 1H ] [ 6H ] [ 24H ] [ 7D ]
+
+Use a dark chart background with neon accent lines.
+
+==================================================
+8. RECENT INCIDENTS
+==================================================
+
+Create a professional incident table.
+
+Columns:
+
+INCIDENT ID
+TITLE
+SEVERITY
+SOURCE
+RESOURCE
+CURRENT AGENT
+STATUS
+CREATED
+ACTION
+
+Example data:
+
+INC-001
+IAM Privilege Escalation
+CRITICAL
+IAM
+user/alice
+Triage
+Investigating
+
+INC-002
+Public S3 Exposure
+HIGH
+S3
+company-data
+Monitor
+New
+
+INC-003
+EC2 Compromise
+HIGH
+EC2
+i-0abc123
+Investigator
+Investigating
+
+INC-004
+Credential Misuse
+MEDIUM
+IAM
+user/bob
+Remediation
+Remediated
+
+Each row must be clickable.
+
+Clicking a row opens the Incident Detail page.
+
+==================================================
+9. AUTONOMOUS AGENT PIPELINE
+==================================================
+
+Create a visually impressive horizontal/vertical pipeline:
+
+MONITOR
+   ↓
+TRIAGE
+   ↓
+INVESTIGATOR
+   ↓
+COMPLIANCE
+   ↓
+APPROVAL GATE
+   ↓
+REMEDIATION
+
+Each agent should be represented by a technical card.
+
+Show:
+
+Agent name
+Status
+Purpose
+Tasks processed
+Last activity
+
+Example:
+
+MONITOR AGENT
+● ACTIVE
+
+Cloud event monitoring
+
+1,284 events processed
+
+Last activity:
+2 seconds ago
+
+Use animated status indicators, but keep animations subtle.
+
+==================================================
+10. INCIDENTS PAGE
+==================================================
+
+Create a dedicated Incident Management page.
+
+Header:
+
+INCIDENT MANAGEMENT
+
+Subtitle:
+
+Monitor, investigate and manage security incidents.
+
+Controls:
+
+Search incidents
+Severity filter
+Status filter
+Agent filter
+Date filter
+Refresh
+
+Table:
+
+Incident ID
+Title
+Severity
+Source
+Affected Resource
+Current Agent
+Status
+Timestamp
+Action
+
+Buttons:
+
+[ VIEW ]
+[ INVESTIGATE ]
+
+Severity must use visual indicators.
+
+==================================================
+11. INCIDENT DETAIL PAGE
+==================================================
+
+This page is extremely important.
+
+Header:
+
+← BACK TO INCIDENTS
+
+INC-001
+
+IAM PRIVILEGE ESCALATION
+
+CRITICAL
+INVESTIGATING
+
+Buttons:
+
+[ INVESTIGATE ]
+[ REQUEST APPROVAL ]
+
+Display an information panel:
+
+DETECTION
+
+First detected
+Source
+User
+Source IP
+Resource
+Confidence
+
+Example:
+
+First detected: 21:45:12
+Source: IAM
+User: alice
+Source IP: 185.20.14.8
+Resource: IAM Policy
+Confidence: 94%
+
+==================================================
+12. ATTACK TIMELINE
+==================================================
+
+Create a visual vertical timeline:
+
+21:42
+User Login
+
+↓
+
+21:43
+Create Access Key
+
+↓
+
+21:44
+Attach Admin Policy
+
+↓
+
+21:45
+Sensitive Resource Access
+
+↓
+
+INCIDENT CREATED
+
+Make the timeline visually technical.
+
+==================================================
+13. AGENT ACTIVITY TIMELINE
+==================================================
+
+Display:
+
+✓ Monitor Agent
+Detected suspicious IAM activity
+
+✓ Triage Agent
+Classified as CRITICAL
+Confidence: 94%
+
+◐ Investigator Agent
+Investigating activity
+
+○ Compliance Agent
+Waiting
+
+○ Remediation Agent
+Waiting
+
+Use different status indicators.
+
+==================================================
+14. THREAT INTELLIGENCE
+==================================================
+
+Create a section:
+
+THREAT INTELLIGENCE
+
+MITRE ATT&CK
+
+TACTIC:
+Privilege Escalation
+
+TECHNIQUE:
+Example technique ID
+
+CONFIDENCE:
+94%
+
+Button:
+
+[ VIEW TECHNIQUE ]
+
+==================================================
+15. INVESTIGATION EVIDENCE
+==================================================
+
+Create:
+
+INVESTIGATION EVIDENCE
+
+✓ Suspicious source IP
+✓ Unusual IAM activity
+✓ Privilege escalation detected
+✓ Sensitive resource accessed
+
+Button:
+
+[ VIEW RAW EVENTS ]
+
+==================================================
+16. APPROVAL CENTER
+==================================================
+
+Create a dedicated page:
+
+HUMAN APPROVAL CENTER
+
+Subtitle:
+
+High-risk remediation actions requiring human authorization.
+
+Example approval card:
+
+CRITICAL ACTION
+
+Isolate EC2 Instance
+
+Resource:
+i-0abc123
+
+Reason:
+Suspected compromise
+
+Requested by:
+Remediation Agent
+
+Risk:
+HIGH
+
+Buttons:
+
+[ VIEW INCIDENT ]
+[ REJECT ]
+[ APPROVE ]
+
+When APPROVE is clicked, show a confirmation modal.
+
+Confirmation:
+
+CONFIRM REMEDIATION
+
+Action:
+Isolate EC2 Instance
+
+Risk:
+HIGH
+
+This action requires authorization.
+
+[ CANCEL ]
+[ CONFIRM APPROVAL ]
+
+When REJECT is clicked, show a rejection modal.
+
+==================================================
+17. AGENTS PAGE
+==================================================
+
+Create:
+
+AGENT NETWORK
+
+5 SPECIALIZED AGENTS
+
+Display five cards.
+
+MONITOR AGENT
+
+● ACTIVE
+
+Purpose:
+Cloud event monitoring
+
+Tools:
+Event Reader
+Event Filter
+Incident Creator
+
+Tasks:
+1,284
+
+----------------
+
+TRIAGE AGENT
+
+● ACTIVE
+
+Purpose:
+Alert correlation and severity classification
+
+Tools:
+Event Correlation
+Severity Classification
+LLM Reasoning
+
+----------------
+
+INVESTIGATOR AGENT
+
+○ STANDBY
+
+Purpose:
+Contextual investigation
+
+Tools:
+MITRE ATT&CK
+Event Analysis
+Resource Context
+
+----------------
+
+COMPLIANCE AGENT
+
+○ STANDBY
+
+Purpose:
+Policy validation
+
+Tools:
+CIS Rules
+ISO 27001
+SOC 2
+
+----------------
+
+REMEDIATION AGENT
+
+○ STANDBY
+
+Purpose:
+Controlled security response
+
+Tools:
+IAM Actions
+EC2 Isolation
+S3 Policy Actions
+
+Clicking an agent opens an Agent Detail page.
+
+==================================================
+18. AGENT DETAIL PAGE
+==================================================
+
+Display:
+
+Agent name
+Current status
+Role
+Input
+Output
+Tools
+Recent decisions
+Recent activity
+
+Example:
+
+TRIAGE AGENT
+
+STATUS:
+● ACTIVE
+
+ROLE:
+Alert correlation and severity assessment
+
+INPUT:
+Raw security events
+
+OUTPUT:
+Triaged incidents
+
+TOOLS:
+
+Event History
+User Context
+Resource Context
+LLM Reasoning
+
+RECENT DECISIONS:
+
+INC-001
+CRITICAL
+94% confidence
+
+INC-002
+HIGH
+89% confidence
+
+==================================================
+19. EVENTS PAGE
+==================================================
+
+Create:
+
+SECURITY EVENTS
+
+Show:
+
+Event ID
+Timestamp
+Event Type
+User
+Source IP
+Resource
+Risk
+
+Example:
+
+EVT-001
+21:45:21
+GetSecretValue
+alice
+185.20.14.8
+secret/db-prod
+HIGH
+
+Controls:
+
+Search
+Filter
+Sort
+Export
+
+==================================================
+20. CLOUD ENVIRONMENT PAGE
+==================================================
+
+Create a visual representation of the simulated AWS environment.
+
+Header:
+
+CLOUD ENVIRONMENT
+
+AWS SIMULATOR
+● ONLINE
+
+Statistics:
+
+IAM USERS
+12
+
+EC2 INSTANCES
+8
+
+S3 BUCKETS
+6
+
+SECURITY GROUPS
+14
+
+Display resource sections.
+
+IAM:
+
+alice
+Developer
+● ACTIVE
+
+bob
+Admin
+● ACTIVE
+
+service-api
+Service
+● ACTIVE
+
+EC2:
+
+EC2-001
+Web Server
+● RUNNING
+
+EC2-002
+Database
+● RUNNING
+
+EC2-003
+API Server
+⚠ ISOLATED
+
+S3:
+
+company-data
+PRIVATE
+
+backup-data
+PRIVATE
+
+public-assets
+PUBLIC
+
+==================================================
+21. ATTACK SIMULATOR
+==================================================
+
+Create a dedicated Attack Scenario Simulator page.
+
+Header:
+
+ATTACK SCENARIO SIMULATOR
+
+Subtitle:
+
+Generate controlled security events in the simulated AWS environment.
+
+Create four scenario cards:
+
+1. IAM PRIVILEGE ESCALATION
+
+Simulates suspicious IAM privilege escalation.
+
+[ RUN SCENARIO ]
+
+2. PUBLIC S3 EXPOSURE
+
+Simulates accidental/public S3 bucket exposure.
+
+[ RUN SCENARIO ]
+
+3. EC2 COMPROMISE
+
+Simulates a compromised EC2 instance.
+
+[ RUN SCENARIO ]
+
+4. CREDENTIAL MISUSE
+
+Simulates suspicious credential usage.
+
+[ RUN SCENARIO ]
+
+Also:
+
+[ RESET ENVIRONMENT ]
+
+When a scenario is executed:
+
+Show loading state.
+
+Then show:
+
+SCENARIO EXECUTED
+
+Events generated: X
+
+Incident created: INC-XXX
+
+[ VIEW INCIDENT ]
+
+==================================================
+22. AUDIT LOG
+==================================================
+
+Create:
+
+AUDIT LOG
+
+Columns:
+
+TIMESTAMP
+AGENT
+ACTION
+DECISION
+RESULT
+
+Example:
+
+21:45:22
+Monitor
+Create Incident
+Incident Created
+SUCCESS
+
+21:45:25
+Triage
+Classify Incident
+CRITICAL
+SUCCESS
+
+21:45:29
+Investigator
+MITRE Lookup
+Privilege Escalation
+SUCCESS
+
+21:45:34
+Compliance
+Policy Check
+PASSED
+SUCCESS
+
+21:45:41
+Remediation
+Disable IAM Key
+SUCCESS
+
+Clicking an audit entry opens detailed information.
+
+Show:
+
+Agent
+Action
+Input
+Decision
+Reason
+Confidence
+Timestamp
+
+==================================================
+23. ANALYTICS PAGE
+==================================================
+
+Create a professional analytics page.
+
+Metrics:
+
+MTTD
+MTTR
+FALSE POSITIVE RATE
+HUMAN APPROVAL FREQUENCY
+REMEDIATION SUCCESS RATE
+
+Use charts for:
+- incidents over time
+- severity distribution
+- incident status
+- agent workload
+- remediation outcomes
+
+IMPORTANT:
+
+Do NOT present invented metrics as real research results.
+
+If using demo data, clearly label it:
+
+DEMO / SIMULATED DATA
+
+==================================================
+24. API INTEGRATION
+==================================================
+
+Prepare the frontend for an existing FastAPI backend.
+
+Create:
+
+src/lib/api.ts
+
+Functions:
+
+getCloudState()
+getEvents()
+getIncidents()
+getStats()
+getAgents()
+runScenario()
+resetEnvironment()
+approveAction()
+rejectAction()
+
+Use:
+
+NEXT_PUBLIC_API_URL
+
+Example:
+
+NEXT_PUBLIC_API_URL=http://localhost:8000
+
+The application should gracefully fall back to mock data if the API is unavailable.
+
+Make it easy to replace mock data with real API responses later.
+
+==================================================
+25. EXPECTED BACKEND ENDPOINT STRUCTURE
+==================================================
+
+Prepare frontend API calls for endpoints similar to:
+
+GET /
+GET /health
+GET /cloud/state
+GET /events
+GET /events/stats
+GET /scenarios
+POST /simulation/run
+POST /cloud/action
+POST /reset
+
+Do not require the backend to run for the UI to work.
+
+==================================================
+26. INTERACTION REQUIREMENTS
+==================================================
+
+All major buttons must work.
+
+Navigation must work.
+
+Incident rows must open incident details.
+
+Agent cards must open agent details.
+
+Attack scenario buttons must show execution states.
+
+Approval buttons must show confirmation dialogs.
+
+Reject buttons must show rejection dialogs.
+
+Refresh must update data.
+
+Filters must actually filter displayed data.
+
+Search must actually search.
+
+Use proper:
+- loading states
+- empty states
+- error states
+- success states
+- confirmation modals
+- toast notifications
+
+==================================================
+27. RESPONSIVE DESIGN
+==================================================
+
+Desktop is the primary target because this is a SOC dashboard.
+
+Also support:
+- tablet
+- smaller screens
+
+Sidebar should collapse on smaller screens.
+
+==================================================
+28. IMPORTANT PROJECT DEMO FLOW
+==================================================
+
+The most important demo flow should be:
+
+1. Open Dashboard
+2. Click RUN ATTACK SIMULATION
+3. Select IAM Privilege Escalation
+4. Run scenario
+5. Show generated events
+6. Show newly created incident
+7. Open incident
+8. Show attack timeline
+9. Show Monitor Agent
+10. Show Triage Agent
+11. Show Investigator Agent
+12. Show Compliance Agent
+13. Show approval requirement
+14. Open Approval Center
+15. Approve remediation
+16. Show Remediation Agent
+17. Show final action
+18. Open Audit Log
+19. Show complete decision trail
+
+Make this flow extremely smooth and visually impressive.
+
+==================================================
+29. DESIGN PRINCIPLE
+==================================================
+
+This is NOT just a dashboard.
+
+The interface should communicate:
+
+DETECT
+↓
+TRIAGE
+↓
+INVESTIGATE
+↓
+VALIDATE
+↓
+HUMAN APPROVAL
+↓
+REMEDIATE
+↓
+AUDIT
+
+The user should understand the entire AgentSOC architecture simply by looking at the dashboard.
+
+Build the application now with polished UI, realistic cybersecurity demo data, reusable components, working navigation, mock API integration, and the complete SOC experience described above.

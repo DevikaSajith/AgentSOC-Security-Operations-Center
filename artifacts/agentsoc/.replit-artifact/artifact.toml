@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "AgentSOC Security Operations Center"
+description = "A futuristic autonomous cloud security operations center for monitoring simulated AWS threats, guiding incidents through specialized AI agents, approving remediation, and reviewing the complete audit trail."
+version = "1.0.0"
+id = "artifacts/agentsoc"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24483
+
+[services.development]
+run = "pnpm --filter @workspace/agentsoc run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/agentsoc", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/agentsoc/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24483"
+BASE_PATH = "/"
