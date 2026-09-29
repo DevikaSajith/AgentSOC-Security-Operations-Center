@@ -1,0 +1,65 @@
+# AgentSOC — Investigator Agent policy (loaded by backend/app/agents/investigator/config.py).
+#
+# The LLM proposes an InvestigationDecision; these deterministic rules decide whether it is
+# accepted, and which MITRE techniques count as "confirmed". A decision that breaks a rule
+# is rejected (one repair attempt), never silently "fixed".
+
+context:
+  # Everything sent to the model is scoped to ONE incident and bounded by these limits.
+  max_events: 40
+  max_resources: 8
+  max_string_length: 240
+  max_context_chars: 14000
+
+policy:
+  max_repair_attempts: 1
+  # Every finding must cite evidence; findings at/above this confidence need more.
+  high_confidence_threshold: 0.8
+  high_confidence_min_evidence: 2
+  # "confirmed" findings/stages must cite at least this many OBSERVED items (events,
+  # IAM/resource state, security findings) - earlier agents' opinions do not count.
+  confirmed_min_observed_evidence: 1
+  # Critical-impact finding types need multiple evidence items when marked confirmed.
+  critical_finding_types: [privilege_escalation, credential_access, exfiltration, impact]
+  critical_confirmed_min_evidence: 2
+  # Every MITRE technique must exist in config/mitre_mapping.yaml and cite evidence.
+  mitre_min_evidence: 1
+  # The summary must name at least one concrete entity (principal, IP or resource) from
+  # the evidence - a guard against generic text that just repeats triage.
+  summary_must_name_entity: true
+  # "close" cannot be recommended while any finding is confirmed.
+  close_forbidden_with_confirmed_findings: true
+
+# Backend rule for MITRE status: a proposed technique is "confirmed" only if its cited
+# evidence contains an event listed in the technique's relevant_events AND the proposal's
+# confidence is at least this value. Otherwise it stays a "candidate".
+mitre_confirmation:
+  min_confidence: 0.6
+  require_relevant_event: true
+
+# Deterministic hints shown to the model and used by the rule-based fallback: which
+# attack stage an event type usually indicates. The model must still justify each stage.
+stage_by_event_type:
+  Login: initial_access
+  ConsoleLogin: initial_access
+  CreateAccessKey: persistence
+  AttachAdminPolicy: privilege_escalation
+  AttachUserPolicy: privilege_escalation
+  AssumeRole: privilege_escalation
+  GetSecretValue: credential_access
+  ListBuckets: discovery
+  ListUsers: discovery
+  DescribeInstances: discovery
+  ExecuteCommand: execution
+  GetObject: collection
+  PutBucketPolicy: impact
+  DeletePublicAccessBlock: impact
+  NetworkFlowAnomaly: exfiltration
+  AuthorizeSecurityGroupIngress: persistence
+
+# rule_based_fallback: used ONLY when the request sets allow_rule_based_fallback=true and
+# no valid LLM decision was obtained. Always labelled method=rule_based_fallback.
+fallback:
+  confidence: 0.5
+  finding_confidence: 0.6
+  mitre_confidence: 0.6

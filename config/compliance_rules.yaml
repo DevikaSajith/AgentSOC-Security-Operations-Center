@@ -1,0 +1,142 @@
+# AgentSOC — Compliance Policy Rules
+# Deterministic policy rules evaluated by the Compliance Agent.
+# The LLM NEVER decides whether an action is allowed — only this ruleset does.
+
+rules:
+  # ============================================================
+  # IAM Rules
+  # ============================================================
+
+  - id: IAM-001
+    description: Disable a compromised or unused IAM access key
+    condition: compromised_access_key
+    action: disable_access_key
+    target_type: iam_access_key
+    risk: MEDIUM
+    approval_required: false
+    reversible: true
+    rollback_action: enable_access_key
+    notes: >
+      Disabling an access key is reversible. Auto-approval is safe because
+      the key can be re-enabled if this is a false positive.
+
+  - id: IAM-002
+    description: Detach an unauthorized high-privilege policy from a principal
+    condition: unauthorized_policy_attachment
+    action: detach_policy
+    target_type: iam_user_policy
+    risk: HIGH
+    approval_required: true
+    reversible: true
+    rollback_action: attach_policy
+    notes: >
+      Policy detachment can disrupt legitimate workloads. Human approval required.
+
+  - id: IAM-003
+    description: Revoke all active sessions for a compromised identity
+    condition: compromised_identity
+    action: revoke_sessions
+    target_type: iam_user
+    risk: HIGH
+    approval_required: true
+    reversible: false
+    notes: >
+      Session revocation cannot be undone. Human approval required.
+
+  - id: IAM-004
+    description: Delete a newly-created suspicious access key
+    condition: suspicious_new_access_key
+    action: delete_access_key
+    target_type: iam_access_key
+    risk: MEDIUM
+    approval_required: false
+    reversible: false
+    notes: >
+      Deleting a new key created during a suspected compromise is safe if
+      the key is less than 1 hour old and the creating session was anomalous.
+
+  # ============================================================
+  # S3 Rules
+  # ============================================================
+
+  - id: S3-001
+    description: Make a publicly-exposed S3 bucket private
+    condition: public_sensitive_bucket
+    action: make_bucket_private
+    target_type: s3_bucket
+    risk: HIGH
+    approval_required: true
+    reversible: true
+    rollback_action: restore_bucket_policy
+    notes: >
+      Blocking public access may break legitimate public-facing applications.
+      Human approval required.
+
+  - id: S3-002
+    description: Block all public access on an overexposed bucket
+    condition: bucket_public_access_block_missing
+    action: apply_public_access_block
+    target_type: s3_bucket
+    risk: MEDIUM
+    approval_required: false
+    reversible: true
+    notes: >
+      Applying the public access block does not change existing ACLs but
+      prevents future public exposure. Safe for auto-approval.
+
+  # ============================================================
+  # EC2 Rules
+  # ============================================================
+
+  - id: EC2-001
+    description: Isolate a compromised EC2 instance
+    condition: compromised_instance
+    action: isolate_instance
+    target_type: ec2_instance
+    risk: HIGH
+    approval_required: true
+    reversible: true
+    rollback_action: restore_instance_sg
+    notes: >
+      Applying a quarantine security group will disrupt all inbound/outbound
+      traffic to the instance. Human approval required.
+
+  - id: EC2-002
+    description: Apply a restrictive quarantine security group to a suspicious instance
+    condition: suspected_c2_beacon
+    action: apply_quarantine_sg
+    target_type: ec2_instance
+    risk: HIGH
+    approval_required: true
+    reversible: true
+    rollback_action: restore_instance_sg
+    notes: >
+      Applied when outbound traffic matches a C2 signature. Human approval required.
+
+  # ============================================================
+  # Credential Misuse Rules
+  # ============================================================
+
+  - id: CRED-001
+    description: Disable access key used from impossible travel location
+    condition: impossible_travel_detected
+    action: disable_access_key
+    target_type: iam_access_key
+    risk: MEDIUM
+    approval_required: false
+    reversible: true
+    rollback_action: enable_access_key
+    notes: >
+      Disable key immediately on impossible travel detection. Auto-approval safe
+      because the action is reversible.
+
+  - id: CRED-002
+    description: Force password reset for credential misuse victim
+    condition: credential_misuse_confirmed
+    action: force_password_reset
+    target_type: iam_user
+    risk: MEDIUM
+    approval_required: false
+    reversible: false
+    notes: >
+      Forces password reset on next login. Safe auto-approval for credential misuse.

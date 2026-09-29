@@ -1,0 +1,12 @@
+fastapi>=0.110,<1.0
+uvicorn>=0.29,<1.0
+sqlalchemy>=2.0,<2.1
+pydantic>=2.6,<3.0
+python-dotenv>=1.0,<2.0
+pyyaml>=6.0,<7.0
+# HTTP client for the local Ollama provider (also used by FastAPI's TestClient)
+httpx>=0.27,<1.0
+# tests
+pytest>=8.0,<10.0
+# Optional, only when DATABASE_URL points at PostgreSQL:
+#   pip install "psycopg2-binary>=2.9,<3.0"

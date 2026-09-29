@@ -1,0 +1,222 @@
+# AgentSOC — MITRE ATT&CK Technique Knowledge Base
+# Cloud-relevant techniques for the four project scenarios.
+# Do NOT hallucinate mappings — only add techniques with clear cloud evidence indicators.
+#
+# relevant_events lists AWS API/event names that constitute direct evidence for the
+# technique. It includes the names produced by the AgentSOC simulator (e.g. "Login",
+# "AttachAdminPolicy", "NetworkFlowAnomaly"). The Investigator Agent marks a technique
+# "confirmed" only when cited evidence contains one of these events (see
+# config/investigator_rules.yaml); otherwise it stays a "candidate".
+#
+# A technique may define `sub_techniques` (each with its own relevant_events) or the
+# older single `sub_technique` / `sub_technique_name` form (which inherits the events).
+
+techniques:
+
+  - technique_id: "T1078"
+    technique_name: "Valid Accounts"
+    tactic: "Initial Access"
+    sub_technique: "T1078.004"
+    sub_technique_name: "Cloud Accounts"
+    description: >
+      Adversaries may obtain and abuse credentials of cloud accounts to maintain access.
+      Cloud accounts may be used to bypass security controls, access sensitive data,
+      and perform actions that appear legitimate.
+    cloud_platform: ["AWS", "Azure", "GCP"]
+    relevant_events:
+      - "ConsoleLogin"
+      - "Login"
+      - "GetSessionToken"
+      - "AssumeRoleWithSAML"
+    indicators:
+      - "Login from unusual IP or geolocation"
+      - "Impossible travel (same session from distant locations)"
+      - "Off-hours access"
+      - "New device fingerprint"
+    severity_weight: 0.6
+
+  - technique_id: "T1098"
+    technique_name: "Account Manipulation"
+    tactic: "Persistence, Privilege Escalation"
+    description: >
+      Adversaries may manipulate accounts to maintain access to victim systems.
+      In cloud environments, this includes creating access keys, modifying permissions,
+      or attaching high-privilege policies to compromised identities.
+    cloud_platform: ["AWS", "Azure", "GCP"]
+    relevant_events:
+      - "CreateAccessKey"
+      - "UpdateAccessKey"
+      - "AttachUserPolicy"
+      - "AttachAdminPolicy"
+      - "AttachRolePolicy"
+      - "PutUserPolicy"
+      - "AddUserToGroup"
+    sub_techniques:
+      - id: "T1098.001"
+        name: "Additional Cloud Credentials"
+        relevant_events: ["CreateAccessKey", "UpdateAccessKey"]
+      - id: "T1098.003"
+        name: "Additional Cloud Roles"
+        relevant_events: ["AttachUserPolicy", "AttachAdminPolicy", "AttachRolePolicy",
+                          "PutUserPolicy", "AddUserToGroup"]
+    indicators:
+      - "Creation of access key for existing user"
+      - "Policy attachment from non-admin principal"
+      - "Addition of user to privileged group"
+      - "Access key created immediately after login from unusual IP"
+    severity_weight: 0.9
+
+  - technique_id: "T1555"
+    technique_name: "Credentials from Password Stores"
+    tactic: "Credential Access"
+    sub_technique: "T1555.006"
+    sub_technique_name: "Cloud Secrets Management Stores"
+    description: >
+      Adversaries may acquire credentials from cloud-native secret management services
+      such as AWS Secrets Manager (GetSecretValue).
+    cloud_platform: ["AWS", "Azure", "GCP"]
+    relevant_events:
+      - "GetSecretValue"
+      - "BatchGetSecretValue"
+    indicators:
+      - "Secret read by a principal that does not normally read it"
+      - "Secret read from an unusual IP"
+    severity_weight: 0.8
+
+  - technique_id: "T1580"
+    technique_name: "Cloud Infrastructure Discovery"
+    tactic: "Discovery"
+    description: >
+      Adversaries may attempt to discover cloud infrastructure to gain information about
+      the environment that can be used to tailor subsequent attacks.
+    cloud_platform: ["AWS", "Azure", "GCP"]
+    relevant_events:
+      - "ListBuckets"
+      - "DescribeInstances"
+      - "ListUsers"
+      - "ListRoles"
+      - "GetAccountAuthorizationDetails"
+    indicators:
+      - "Enumeration of IAM users, roles, and policies"
+      - "Discovery of S3 buckets"
+      - "EC2 instance listing"
+    severity_weight: 0.4
+
+  - technique_id: "T1530"
+    technique_name: "Data from Cloud Storage"
+    tactic: "Collection"
+    description: >
+      Adversaries may access data from cloud storage such as S3 buckets.
+      In misconfigured environments, buckets may be publicly accessible
+      or accessible to overly permissive roles.
+    cloud_platform: ["AWS", "Azure", "GCP"]
+    relevant_events:
+      - "GetObject"
+      - "PutBucketPolicy"
+      - "PutBucketAcl"
+      - "DeletePublicAccessBlock"
+      - "ListObjects"
+    indicators:
+      - "Public bucket policy applied"
+      - "Anonymous access to sensitive bucket"
+      - "Large GetObject volume from unusual IP"
+    severity_weight: 0.7
+
+  - technique_id: "T1651"
+    technique_name: "Cloud Administration Command"
+    tactic: "Execution"
+    description: >
+      Adversaries may abuse cloud management services (e.g. AWS Systems Manager Run
+      Command) to execute commands within virtual machines.
+    cloud_platform: ["AWS", "Azure", "GCP"]
+    relevant_events:
+      - "ExecuteCommand"
+      - "SendCommand"
+      - "StartSession"
+    indicators:
+      - "Commands run on an instance by an unusual principal or from an unusual IP"
+    severity_weight: 0.75
+
+  - technique_id: "T1562"
+    technique_name: "Impair Defenses"
+    tactic: "Defense Evasion"
+    sub_technique: "T1562.008"
+    sub_technique_name: "Disable or Modify Cloud Logs"
+    description: >
+      Adversaries may disable cloud logging to evade detection.
+      Disabling CloudTrail or modifying log group settings reduces visibility.
+    cloud_platform: ["AWS", "Azure", "GCP"]
+    relevant_events:
+      - "DeleteTrail"
+      - "StopLogging"
+      - "UpdateTrail"
+      - "DeleteLogGroup"
+    indicators:
+      - "CloudTrail trail stopped or deleted"
+      - "Log group deletion"
+    severity_weight: 0.85
+
+  - technique_id: "T1021"
+    technique_name: "Remote Services"
+    tactic: "Lateral Movement"
+    sub_technique: "T1021.007"
+    sub_technique_name: "Cloud Services"
+    description: >
+      Adversaries may use cloud services to move laterally across accounts and regions.
+      This includes assuming roles in other accounts or regions.
+    cloud_platform: ["AWS"]
+    relevant_events:
+      - "AssumeRole"
+      - "AssumeRoleWithWebIdentity"
+    indicators:
+      - "Role assumption across account boundaries"
+      - "Cross-region role assumption"
+    severity_weight: 0.65
+
+  - technique_id: "T1496"
+    technique_name: "Resource Hijacking"
+    tactic: "Impact"
+    description: >
+      Adversaries may leverage cloud resources for purposes such as cryptocurrency mining.
+      This often manifests as unusual EC2 instance launches in unusual regions.
+    cloud_platform: ["AWS", "Azure", "GCP"]
+    relevant_events:
+      - "RunInstances"
+      - "CreateVolume"
+    indicators:
+      - "Instance launch in unusual region"
+      - "GPU instance type from non-standard principal"
+    severity_weight: 0.5
+
+  - technique_id: "T1071"
+    technique_name: "Application Layer Protocol"
+    tactic: "Command and Control"
+    sub_technique: "T1071.001"
+    sub_technique_name: "Web Protocols"
+    description: >
+      Adversaries may communicate using application layer protocols associated with
+      web traffic to blend in with normal traffic and avoid detection.
+      Outbound HTTPS to unusual IPs from EC2 instances can indicate C2 communication.
+    cloud_platform: ["AWS"]
+    relevant_events:
+      - "NetworkConnection"
+      - "VpcFlowLog"
+      - "NetworkFlowAnomaly"
+    indicators:
+      - "Outbound connection to known malicious IP"
+      - "Unusual TLS port (8443, 4444)"
+      - "High-volume outbound on unusual port"
+    severity_weight: 0.75
+
+  - technique_id: "T1041"
+    technique_name: "Exfiltration Over C2 Channel"
+    tactic: "Exfiltration"
+    description: >
+      Adversaries may steal data by exfiltrating it over an existing command and control
+      channel (large outbound transfers to an attacker-controlled destination).
+    cloud_platform: ["AWS", "Azure", "GCP"]
+    relevant_events:
+      - "NetworkFlowAnomaly"
+    indicators:
+      - "Large outbound byte count to an untrusted destination"
+    severity_weight: 0.8

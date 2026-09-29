@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "agentsoc-frontend",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["pnpm", "--filter", "@workspace/agentsoc", "run", "dev"],
+      "port": 3000
+    }
+  ]
+}

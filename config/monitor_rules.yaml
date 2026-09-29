@@ -1,0 +1,112 @@
+# AgentSOC — Monitor Agent rules (deterministic; no LLM).
+#
+# The Monitor Agent only decides whether activity should be TREATED AS AN INCIDENT.
+# The severity/priority it assigns are INITIAL SIGNALS; the Triage Agent (later phase)
+# performs the real security prioritization. Its confidence means "this should be an
+# incident", NOT "the attacker is doing X".
+#
+# Loaded by backend/app/agents/monitor/config.py (validated; unknown keys are rejected).
+
+validation:
+  # Events timestamped further in the future than this are rejected (clock skew).
+  max_future_skew_seconds: 300
+  # Events older than this are rejected as stale.
+  max_event_age_days: 30
+
+# Source IPs inside these ranges are "known" (the simulated corporate network).
+trusted_networks:
+  - 203.0.113.0/24
+  - 10.0.0.0/8
+
+# Resources whose access is security-relevant (simulated data classification).
+sensitive_resources:
+  - company-data
+  - prod/db-password
+
+# API calls that are security-relevant on their own.
+suspicious_event_types:
+  - CreateAccessKey
+  - AttachAdminPolicy
+  - GetSecretValue
+  - PutBucketPolicy
+  - DeletePublicAccessBlock
+  - AuthorizeSecurityGroupIngress
+  - ExecuteCommand
+  - NetworkFlowAnomaly
+
+# Used ONLY when an incoming event carries no severity of its own.
+default_severity_by_event_type:
+  AttachAdminPolicy: high
+  DeletePublicAccessBlock: high
+  NetworkFlowAnomaly: high
+  CreateAccessKey: medium
+  GetSecretValue: medium
+  PutBucketPolicy: medium
+  AuthorizeSecurityGroupIngress: medium
+  ExecuteCommand: medium
+  AssumeRole: medium
+
+# Initial category. Event type first, then the resource type, else "other".
+category_by_event_type:
+  Login: credential
+  GetSecretValue: credential
+  CreateAccessKey: iam
+  AttachAdminPolicy: iam
+  ListUsers: iam
+  GetCallerIdentity: iam
+  PutBucketPolicy: s3
+  DeletePublicAccessBlock: s3
+  GetObject: s3
+  ListBuckets: s3
+  ExecuteCommand: ec2
+  AssumeRole: ec2
+  DescribeInstances: ec2
+  NetworkFlowAnomaly: network
+  AuthorizeSecurityGroupIngress: network
+category_by_resource_type:
+  IAMUser: iam
+  S3Bucket: s3
+  EC2Instance: ec2
+  SecurityGroup: network
+  Secret: credential
+
+correlation:
+  # Two events are linked only if they share the SAME principal and either the same
+  # source IP or the same (non-wildcard) resource, and are at most this far apart.
+  window_seconds: 900
+
+incident:
+  # A new group is added to an existing OPEN incident (instead of creating a new one) when
+  # it has the same principal and category, was seen within this window of the incident's
+  # last update, and shares the source IP or a resource other than the principal itself.
+  merge_window_minutes: 60
+  closed_statuses: [resolved, false_positive]
+  # An incident is created when ANY of these holds for an event group:
+  create_when:
+    min_event_severity: high           # an event at/above this severity
+    any_suspicious_event_type: true    # an event type listed above
+    correlated_group:                  # or several events with several independent signals
+      min_events: 2
+      min_distinct_indicators: 2
+  # Correlated groups that qualify only through weak signals get at least this severity.
+  severity_floor: medium
+
+# Confidence that the group should be an incident: 1 - product(1 - weight) over the
+# distinct indicators present (a "noisy-OR"), capped at max_confidence.
+confidence:
+  indicator_weights:
+    high_severity: 0.6
+    suspicious_event_type: 0.5
+    untrusted_source_ip: 0.3
+    sensitive_resource: 0.3
+    principal_ip_change: 0.3
+    privileged_principal: 0.2
+    correlated_group: 0.2
+  max_confidence: 0.99
+
+priority_by_severity:
+  critical: P1
+  high: P2
+  medium: P3
+  low: P4
+  info: P4

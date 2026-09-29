@@ -1,0 +1,59 @@
+# AgentSOC — Agent Configuration
+# Behavioral thresholds and settings for each agent.
+
+monitor:
+  # Maximum number of events to collect per simulation run
+  max_events_per_run: 100
+  # Minimum severity to surface an event (unknown, low, medium, high, critical)
+  min_severity_threshold: low
+  # Event sources to monitor
+  sources:
+    - CloudTrail
+    - GuardDuty
+    - VpcFlowLogs
+    - Config
+
+triage:
+  # Confidence threshold above which an incident is escalated to investigation
+  escalation_threshold: 0.5
+  # Confidence below which an incident is closed without action
+  close_threshold: 0.2
+  # Whether to use LLM reasoning (true) or rule-based fallback only (false)
+  use_llm: true
+  # Maximum retries when LLM returns malformed output
+  llm_max_retries: 2
+  # Temperature for LLM calls (lower = more deterministic)
+  llm_temperature: 0.1
+
+investigator:
+  # Confidence threshold for MITRE mapping
+  mitre_confidence_threshold: 0.6
+  # Maximum number of related events to include in investigation
+  max_related_events: 20
+
+compliance:
+  # Whether MEDIUM-risk actions require human approval
+  # (overridden by compliance_rules.yaml per-rule)
+  require_approval_for_medium: false
+  # Whether HIGH-risk actions always require human approval
+  require_approval_for_high: true
+  # Whether CRITICAL-risk actions always require human approval
+  require_approval_for_critical: true
+
+remediation:
+  # Whether to actually modify simulated state (set false for dry-run mode)
+  execute_actions: true
+  # Whether to run verification after every remediation
+  verify_after_remediation: true
+  # Rollback automatically if verification fails
+  auto_rollback_on_failure: true
+  # Maximum seconds to wait for verification
+  verification_timeout_seconds: 10
+
+workflow:
+  # Maximum time in seconds for the entire pipeline per incident
+  max_pipeline_seconds: 300
+  # Whether the approval gate supports async human decisions
+  async_approval: true
+  # Default approval timeout in seconds (0 = no timeout)
+  approval_timeout_seconds: 0

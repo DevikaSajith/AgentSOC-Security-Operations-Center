@@ -1,0 +1,9 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+# local SQLite database (created on first start)
+*.db
+*.db-journal
