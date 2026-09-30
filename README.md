@@ -128,10 +128,11 @@ audit, approvals, cloud/state, simulation/scenarios` and
 To use PostgreSQL instead of SQLite, set `DATABASE_URL=postgresql://...` in `backend/.env`
 and `pip install psycopg2-binary`.
 
-> Implemented: the **Monitor Agent** (deterministic, read-only) and the **Triage Agent**
-> (local LLM behind strict validation, read-only). Running a scenario stores events; the
-> Monitor turns them into incidents; Triage prioritizes an incident when you run it.
-> Investigator, Compliance and Remediation are not implemented yet. Containment actions only run through the
+> Implemented: the **Monitor Agent** (deterministic, read-only), the **Triage**, **Investigator**
+> and **Compliance** agents (local LLM behind strict validation, all read-only) and the
+> **Remediation Agent** (the LLM only plans; a human approves; the backend executes). Each stage is
+> run explicitly: scenario -> Monitor -> Triage -> Investigator -> Compliance -> Remediation ->
+> approval. The **Verification Agent** (deterministic, read-only) then checks the result against the real cloud state. Containment actions only run through the
 > controlled tool layer (`backend/app/tools/`), never as arbitrary commands, and never
 > against real AWS.
 
@@ -169,6 +170,77 @@ incident update → audit → `AgentResult`. If the LLM is unavailable the run f
 (`outcome: llm_unavailable`) and the incident is unchanged; a deterministic
 `rule_based_fallback` is used only if the request sets `"allow_rule_based_fallback": true`.
 Tests never need Ollama (they use `MockLLMProvider`).
+
+#### Investigator Agent
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/agents/investigator/run -H "Content-Type: application/json" -d "{\"incident_id\": \"INC-...\"}"
+```
+
+Needs a triaged incident (otherwise `status: skipped, outcome: triage_required`; Triage is never run
+automatically). Pipeline (`backend/app/agents/investigator/`): deterministic evidence catalog
+(EV/PR/RS/SF/MF/TR ids) -> timeline -> entities/relationships -> MITRE candidates from
+`config/mitre_mapping.yaml` -> bounded context -> LLM -> `InvestigationDecision` -> validation
+(schema, evidence refs, MITRE ids, policy from `config/investigator_rules.yaml`, one repair attempt)
+-> backend decides certainty ("confirmed" needs observed evidence) and MITRE status
+(candidate/confirmed) -> `incident.investigation`. Triage results are never overwritten.
+`OLLAMA_NUM_CTX` (default 8192) sets the model context window.
+
+#### Compliance Agent
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/agents/compliance/run -H "Content-Type: application/json" -d "{\"incident_id\": \"INC-...\"}"
+```
+
+Needs an investigated incident (otherwise `status: skipped, outcome: investigation_required`;
+Investigator is never run automatically). It maps the incident to **project-configured** controls and
+frameworks only (`config/compliance_mapping.yaml`: NIST CSF, ISO 27001, SOC 2, CIS Controls; asset
+classification; violation rules; internal reporting rules) and validates the model against
+`config/compliance_policy.yaml`. Anything not configured is reported as `unknown` /
+`requires_manual_assessment`; regulations, statutes and deadlines are rejected. The framework control
+ids are this project's own demonstration mapping for a simulated environment - verify them before
+relying on them. This is a security-engineering aid, **not legal advice**.
+
+#### Remediation Agent (plans with the LLM, acts only through policy + human approval + ToolExecutor)
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/agents/remediation/run -H "Content-Type: application/json" -d "{\"incident_id\": \"INC-...\"}"
+curl http://127.0.0.1:8000/api/approvals?status=pending
+curl -X POST http://127.0.0.1:8000/api/approvals/APR-.../approve   # or /reject, or /execute (retry an approved one)
+```
+
+Needs a compliance-assessed incident (otherwise `status: skipped, outcome: compliance_required`;
+Compliance is never run automatically). **Running the agent never executes anything.** The backend
+first determines which of the four allow-listed actions (`disable_access_key`,
+`remove_admin_privileges`, `isolate_instance`, `make_bucket_private`) apply to the *current* cloud
+state, then the local model only chooses one (or `no_action`) and explains why. The proposal is
+validated (action, target, evidence, policy in `config/remediation_policy.yaml`), stored, and a
+pending **approval** is created for that exact action + target + arguments. Only when a human
+approves does the backend re-validate everything against the live state, check the kill switch and
+execute through the `ToolExecutor`, then read the resource back to confirm the change. The
+authority chain is: model proposal -> validation -> policy -> human approval -> kill switch ->
+ToolExecutor -> simulator. Real AWS is never touched.
+
+**Kill switch:** `AGENT_ACTIONS_ENABLED` (default `false`). While it is off, an approval is recorded
+but nothing executes (`outcome: actions_disabled`); turn it on and use `POST /api/approvals/{id}/execute`.
+A plan is *stale* (and blocked, `stale_remediation_plan`) if the target's state changed after it was
+made; approvals expire after `approval.ttl_minutes` in the policy file.
+
+#### Verification Agent (deterministic, read-only)
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/agents/verification/run -H "Content-Type: application/json" -d "{\"incident_id\": \"INC-...\"}"
+```
+
+Answers one question: *did the executed remediation actually achieve its security effect?* It does not
+trust the execution result. It reads the target's **current** state through the read tool `get_resource`
+and compares **BEFORE** (recorded by the remediation) / **EXPECTED** (`config/verification_rules.yaml`, using
+the simulator's own field names) / **ACTUAL**. Result: `verified`, `failed`, `partial`, `unknown` (state
+unreadable/incomplete - never turned into success) or `skipped` (`remediation_not_ready` /
+`remediation_not_executed`, nothing changes). No LLM, no action-tool permission, no approval access; it
+never executes, approves or retries anything, so it is safe to run repeatedly. A failed verification keeps
+the incident open (`verification_failed`) with a `reassess_remediation` recommendation; retrying is a
+human decision. `verified` does not auto-close the incident.
 
 ---
 
@@ -209,8 +281,8 @@ in `backend/.env.example`.
 ## 🧪 Common Workflows
 
 - **Run an Attack Simulation**:
-  Navigate to **Attack Simulator** in the sidebar, select **IAM privilege escalation**, and click to trigger. With the backend running, 4 events are stored and the simulated cloud changes (Step 1); then click **Run Monitor Agent on these 4 events** (Step 2) to create the incident, then **Run Triage Agent** (Step 3; needs Ollama). In demo mode, a sample incident `INC-005` is created.
+  Navigate to **Attack Simulator** in the sidebar, select **IAM privilege escalation**, and click to trigger. With the backend running, 4 events are stored and the simulated cloud changes (Step 1); then click **Run Monitor Agent on these 4 events** (Step 2) to create the incident, then **Run Triage Agent** (Step 3) and **Run Investigation Agent** (Step 4) and **Run Compliance Agent** (Step 5), then **Run Remediation Agent** (Step 6) to get a proposal and an approval card, then **Run Verification** (Step 7) after it executes; all need Ollama. Approve/Reject on the card; execution needs `AGENT_ACTIONS_ENABLED=true` on the backend. In demo mode, a sample incident `INC-005` is created.
 - **Investigate an Incident**:
   Go to **Incidents** (`/incidents`), click `INC-001`, and inspect the attack timeline, agent reasoning trace, and forensic evidence.
 - **Approve or Reject Containment**:
-  Visit **Approval Center** (`/approvals`) to review pending actions. Click **Approve** or **Reject** to write an entry directly into the **Audit Log**.
+  Visit **Approval Center** (`/approvals`) or the approval card on the incident page. With the backend running, **Approve** re-validates the proposal, checks policy and the kill switch, executes through the tool layer and reads the cloud state back; **Reject** executes nothing. Both are written to the **Audit Log**.

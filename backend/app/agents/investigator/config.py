@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.investigation import FindingType
+from app.domain.investigation import FindingType, InvestigationNextStep
 
 INVESTIGATOR_RULES_FILE = "investigator_rules.yaml"
 
@@ -31,6 +31,7 @@ class PolicyRules(_Strict):
     mitre_min_evidence: int = Field(ge=1)
     summary_must_name_entity: bool
     close_forbidden_with_confirmed_findings: bool
+    critical_findings_require_next_step: tuple[InvestigationNextStep, ...]
 
 
 class MitreConfirmation(_Strict):

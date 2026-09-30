@@ -6,7 +6,12 @@ from typing import Iterator
 from fastapi import HTTPException, Request
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.agents.compliance.agent import ComplianceAgent
+from app.agents.investigator.agent import InvestigatorAgent
 from app.agents.monitor.agent import MonitorAgent
+from app.agents.remediation.agent import RemediationAgent
+from app.agents.remediation.execution import RemediationExecutor
+from app.agents.verification.agent import VerificationAgent
 from app.agents.triage.agent import TriageAgent
 from app.database.connection import Database
 from app.domain.incident import AuditEntry
@@ -89,6 +94,56 @@ def get_triage_agent(request: Request) -> TriageAgent:
     return TriageAgent(ready_database(request), config, request.app.state.llm,
                        get_tool_executor(request),
                        audit_sink=lambda entry: record_audit(request, entry))
+
+
+def get_investigator_agent(request: Request) -> InvestigatorAgent:
+    """An Investigator Agent wired to the database, rules, LLM provider, tools and audit."""
+    config = request.app.state.investigator_config
+    if config is None:
+        raise HTTPException(503, "Investigator Agent unavailable: investigator_rules.yaml missing or invalid")
+    return InvestigatorAgent(ready_database(request), config, request.app.state.llm,
+                             get_tool_executor(request),
+                             audit_sink=lambda entry: record_audit(request, entry),
+                             config_dir=request.app.state.settings.config_dir)
+
+
+def get_compliance_agent(request: Request) -> ComplianceAgent:
+    """A Compliance Agent wired to the database, configured mappings, LLM provider, tools and audit."""
+    settings = request.app.state.compliance_settings
+    if settings is None:
+        raise HTTPException(503, "Compliance Agent unavailable: compliance_mapping.yaml / "
+                                 "compliance_policy.yaml missing or invalid")
+    return ComplianceAgent(ready_database(request), settings, request.app.state.llm,
+                           get_tool_executor(request),
+                           audit_sink=lambda entry: record_audit(request, entry))
+
+
+def get_remediation_agent(request: Request) -> RemediationAgent:
+    """A Remediation (planning) Agent: LLM provider + policy + tools + audit. It never executes anything."""
+    policy = request.app.state.remediation_settings
+    if policy is None:
+        raise HTTPException(503, "Remediation Agent unavailable: remediation_policy.yaml missing or invalid")
+    return RemediationAgent(ready_database(request), policy, request.app.state.llm,
+                            get_tool_executor(request),
+                            audit_sink=lambda entry: record_audit(request, entry))
+
+
+def get_remediation_executor(request: Request) -> RemediationExecutor:
+    """Executes ONE already-requested approval: human decision -> gates -> kill switch -> ToolExecutor."""
+    policy = request.app.state.remediation_settings
+    if policy is None:
+        raise HTTPException(503, "Remediation unavailable: remediation_policy.yaml missing or invalid")
+    return RemediationExecutor(ready_database(request), policy, get_tool_executor(request),
+                               audit_sink=lambda entry: record_audit(request, entry))
+
+
+def get_verification_agent(request: Request) -> VerificationAgent:
+    """A read-only, deterministic Verification Agent (no LLM, no action tools, no approval access)."""
+    rules = request.app.state.verification_rules
+    if rules is None:
+        raise HTTPException(503, "Verification Agent unavailable: verification_rules.yaml missing or invalid")
+    return VerificationAgent(ready_database(request), rules, get_tool_executor(request),
+                             audit_sink=lambda entry: record_audit(request, entry))
 
 
 def get_tool_executor(request: Request) -> ToolExecutor:

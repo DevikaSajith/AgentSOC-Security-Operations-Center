@@ -24,6 +24,9 @@ from app.domain.enums import (
     VerificationStatus,
 )
 from app.domain.events import DEFAULT_REGION, SIMULATED_ACCOUNT_ID, utcnow
+from app.domain.compliance import ComplianceAssessment
+from app.domain.remediation import RemediationAssessment
+from app.domain.verification import VerificationAssessment
 from app.domain.investigation import InvestigationAssessment
 from app.domain.triage import TriageAssessment
 
@@ -63,17 +66,6 @@ class MitreTechnique(BaseModel):
     tactic: str
     confidence: Confidence = Field(default=0.0, ge=0.0, le=1.0)
     evidence_ids: list[str] = Field(default_factory=list)
-
-
-class ComplianceFinding(BaseModel):
-    """A policy/control evaluated for an incident or a proposed action."""
-
-    control_id: str = Field(min_length=1)  # e.g. "IAM-001", "CIS-AWS-1.16"
-    framework: str = ""  # e.g. "CIS AWS", "internal"
-    title: str
-    passed: bool
-    severity: Severity = Severity.MEDIUM
-    details: str = ""
 
 
 class RemediationStep(BaseModel):
@@ -172,9 +164,15 @@ class IncidentState(BaseModel):
     mitre_techniques: list[MitreTechnique] = Field(default_factory=list)
 
     # --- compliance
-    compliance_findings: list[ComplianceFinding] = Field(default_factory=list)
+    compliance: ComplianceAssessment | None = None  # latest valid compliance assessment
 
-    # --- remediation + human gate
+    # --- remediation (latest validated proposal + approval + execution)
+    remediation: RemediationAssessment | None = None
+
+    # --- verification (independent read-back of the cloud after remediation)
+    verification: VerificationAssessment | None = None
+
+    # --- legacy placeholders (unused by the Remediation Agent; kept for stored-data compatibility)
     remediation_plan: RemediationPlan | None = None
     remediation_status: RemediationStatus = RemediationStatus.NOT_STARTED
     approval_required: bool = False

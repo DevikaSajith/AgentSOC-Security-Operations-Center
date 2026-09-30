@@ -24,6 +24,22 @@ class MockLLMProvider(LLMProvider):
         self._available = available
         self.calls: list[dict[str, Any]] = []
 
+    @classmethod
+    def routed(cls, routes: "dict[str, list[str] | Responder]", **kwargs: Any) -> "MockLLMProvider":
+        """One mock serving several agents: the first key found in the system prompt picks
+        the scripted responses, e.g. {"Triage Agent": [...], "Investigator Agent": [...]}."""
+        counters: dict[str, int] = {}
+
+        def respond(system: str, user: str) -> str:
+            for key, responses in routes.items():
+                if key in system:
+                    if callable(responses):
+                        return responses(system, user)
+                    counters[key] = counters.get(key, 0) + 1
+                    return responses[min(counters[key], len(responses)) - 1]
+            raise AssertionError("no scripted response for this prompt")
+        return cls(respond, **kwargs)
+
     def complete(self, system: str, user: str, *,
                  json_schema: dict[str, Any] | None = None) -> LLMResponse:
         self.calls.append({"system": system, "user": user, "json_schema": json_schema})

@@ -16,6 +16,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app import __version__
 from app.agents.monitor.config import MonitorConfigError, load_monitor_config
+from app.agents.compliance.config import ComplianceConfigError, load_compliance_settings
+from app.agents.investigator.config import InvestigatorConfigError, load_investigator_config
+from app.agents.verification.config import VerificationConfigError, load_verification_rules
+from app.agents.remediation.config import RemediationConfigError, load_remediation_settings
 from app.agents.triage.config import TriageConfigError, load_triage_config
 from app.api.routes import router
 from app.config import ConfigurationError, Settings, configure_logging, get_settings
@@ -65,7 +69,7 @@ def create_app(cloud: CloudSimulator | None = None, database: Database | None = 
 
     app = FastAPI(title="AgentSOC API", version=__version__,
                   description="Simulated cloud SOC backend. No real AWS. The optional local LLM "
-                              "is used only by the Triage Agent, behind strict validation.",
+                              "proposes remediation plans and the other reasoning agents, behind strict validation; it never executes anything.",
                   lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                        allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
@@ -73,7 +77,7 @@ def create_app(cloud: CloudSimulator | None = None, database: Database | None = 
     app.state.cloud = cloud or CloudSimulator()
     app.state.attacks = AttackSimulator(app.state.cloud)
     app.state.database = database
-    app.state.tools = build_default_registry(agent_actions_enabled=False)
+    app.state.tools = build_default_registry(agent_actions_enabled=settings.agent_actions_enabled)
     try:
         app.state.monitor_config = load_monitor_config(settings.config_dir)
     except MonitorConfigError as exc:  # the rest of the API still works; the Monitor reports 503
@@ -84,6 +88,26 @@ def create_app(cloud: CloudSimulator | None = None, database: Database | None = 
     except TriageConfigError as exc:
         logger.error("%s", exc)
         app.state.triage_config = None
+    try:
+        app.state.investigator_config = load_investigator_config(settings.config_dir)
+    except InvestigatorConfigError as exc:
+        logger.error("%s", exc)
+        app.state.investigator_config = None
+    try:
+        app.state.compliance_settings = load_compliance_settings(settings.config_dir)
+    except ComplianceConfigError as exc:
+        logger.error("%s", exc)
+        app.state.compliance_settings = None
+    try:
+        app.state.remediation_settings = load_remediation_settings(settings.config_dir)
+    except RemediationConfigError as exc:
+        logger.error("%s", exc)
+        app.state.remediation_settings = None
+    try:
+        app.state.verification_rules = load_verification_rules(settings.config_dir)
+    except VerificationConfigError as exc:
+        logger.error("%s", exc)
+        app.state.verification_rules = None
     app.state.llm_error = None
     if llm_provider is _FROM_SETTINGS:
         try:

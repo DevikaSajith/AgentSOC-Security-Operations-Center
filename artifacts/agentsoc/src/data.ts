@@ -1,5 +1,64 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
-export type IncidentStatus = 'New' | 'Triaged' | 'Investigating' | 'Awaiting approval' | 'Contained' | 'Resolved';
+export type IncidentStatus = 'New' | 'Triaged' | 'Investigated' | 'Compliance assessed' | 'Remediation pending' | 'Remediation approved' | 'Remediation rejected' | 'Remediation failed' | 'Remediated' | 'Verified' | 'Verification failed' | 'Partial remediation' | 'Verification unknown' | 'Investigating' | 'Awaiting approval' | 'Contained' | 'Resolved';
+
+/** The latest Verification Agent result: BEFORE / EXPECTED / ACTUAL read back from the cloud (deterministic, read-only). */
+export type VerificationInfo = {
+  runId: string; status: string; method: string; action: string; target: string | null; expectedEffect: string;
+  expectedState: Record<string, unknown>; beforeState: Record<string, unknown> | null; actualState: Record<string, unknown> | null;
+  comparison: { field: string; before: unknown; expected: unknown; actual: unknown; present: boolean; satisfied: boolean; changed: boolean }[];
+  evidence: { id: string; type: string; source: string; description: string; data: Record<string, unknown> }[];
+  confidence: number; reason: string; failureReason: string | null; reportedExecution: string | null;
+  basedOnRemediationRun: string | null; recommendations: string[]; timestamp: string;
+};
+
+/** The latest Remediation Agent plan, its approval and execution (real incidents only). The model only PLANS. */
+export type RemediationInfo = {
+  runId: string; status: string; method: 'llm' | 'rule_based_fallback' | 'no_candidates'; provider: string; model: string;
+  timestamp: string; confidence: number; summary: string; basedOnComplianceRun: string | null;
+  plan: {
+    id: string; action: string; tool: string | null; target: string | null; args: Record<string, unknown>; reason: string;
+    evidenceIds: string[]; expectedEffect: string; risk: string; proposedRisk: string; requiresApproval: boolean;
+    rollbackAvailable: boolean; rollbackDescription: string; excluded: string[];
+    policyNotes: { field: string; proposed: string; final: string; note: string }[];
+  };
+  approval: { id: string; status: string; requestedAt: string; expiresAt: string; reviewedAt: string | null; reviewedBy: string | null; decision: string | null } | null;
+  execution: { status: string; action: string | null; target: string | null; tool: string | null; approvalId: string | null; reasonCode: string | null; message: string; before: Record<string, unknown> | null; after: Record<string, unknown> | null; executedAt: string | null };
+  before: Record<string, unknown> | null; after: Record<string, unknown> | null;
+  evidence: { id: string; type: string; source: string; observed: boolean; description: string }[];
+  recommendations: string[]; unknowns: string[];
+};
+
+/** The latest validated Compliance Agent assessment (real incidents only). Not legal advice. */
+export type ComplianceInfo = {
+  runId: string; method: 'llm' | 'rule_based_fallback'; provider: string; model: string; timestamp: string;
+  confidence: number; overallStatus: string; overallNote: string; summary: string; basedOnInvestigationRun: string | null;
+  assets: { id: string; type: string; identifier: string; classification: string; basis: string; environment: string | null; owner: string | null }[];
+  data: { id: string; identifier: string; classification: string; basis: string }[];
+  controls: { id: string; name: string; status: string; proposed: string; evidenceIds: string[]; confidence: number; rationale: string; note: string | null }[];
+  frameworks: { framework: string; frameworkName: string; controlId: string; title: string; control: string; status: string; evidenceIds: string[]; rationale: string; source: string; note: string | null }[];
+  gaps: { control: string; name: string; description: string; evidenceIds: string[] }[];
+  violations: { control: string; name: string; ruleId: string | null; status: string; proposed: string; statement: string; evidenceIds: string[]; note: string | null }[];
+  reportingStatus: string;
+  reporting: { status: string; ruleId: string | null; requirement: string | null; note: string; evidenceIds: string[]; source: string }[];
+  recommendations: { type: string; control: string | null; rationale: string; evidenceIds: string[] }[];
+  unknowns: string[]; standingUnknowns: string[];
+  violationRules: { id: string; description: string }[];
+  evidence: { id: string; type: string; source: string; observed: boolean; description: string }[];
+};
+
+/** The latest validated Investigator Agent report (real incidents only). */
+export type InvestigationInfo = {
+  runId: string; method: 'llm' | 'rule_based_fallback'; provider: string; model: string; timestamp: string;
+  confidence: number; summary: string; nextStep: string; rootCause: string;
+  unknowns: string[]; limitations: string[]; alternatives: string[];
+  timeline: { id: string; time: string; event: string; gap: number | null; shares: string[]; note: string | null }[];
+  entities: { id: string; type: string; value: string; evidenceIds: string[] }[];
+  relationships: { from: string; relation: string; to: string; certainty: string }[];
+  stages: { order: number; stage: string; description: string; evidenceIds: string[]; certainty: string; proposed: string; note: string | null }[];
+  findings: { id: string; type: string; statement: string; evidenceIds: string[]; confidence: number; classification: string; proposedConfidence: number; proposedCertainty: string; note: string | null }[];
+  mitre: { id: string; name: string; tactic: string; confidence: number; evidenceIds: string[]; rationale: string; status: 'candidate' | 'confirmed'; note: string }[];
+  evidence: { id: string; type: string; source: string; observed: boolean; description: string }[];
+};
 
 /** The latest validated Triage Agent assessment (real incidents only). */
 export type TriageInfo = {
@@ -21,6 +80,10 @@ export type IncidentDetail = {
   relatedEventIds: string[]; affected: string[]; evidence: IncidentEvidence[]; decisions: IncidentDecisionEntry[];
   stages: { investigation: boolean; compliance: boolean; remediation: boolean; verification: boolean };
   triage: TriageInfo | null;
+  investigation: InvestigationInfo | null;
+  compliance: ComplianceInfo | null;
+  remediation: RemediationInfo | null;
+  verification: VerificationInfo | null;
 };
 export type Incident = {
   id: string; title: string; severity: Severity; source: string; resource: string;
@@ -31,6 +94,10 @@ export type SecurityEvent = { id: string; timestamp: string; type: string; user:
 export type AgentStats = {
   runs: number; lastRunAt: string | null;
   lastResult: { status: string; outcome: string; confidence: number; summary: string; incidentId: string | null; findings: string[] } | null;
+  // Verification Agent
+  verified?: number; verificationFailed?: number; partial?: number; unknown?: number; skipped?: number; method?: string;
+  // Remediation Agent
+  pendingApprovals?: number; executedActions?: number;
   // Monitor Agent
   eventsProcessed?: number; incidentsCreated?: number; incidentsUpdated?: number; eventsRejected?: number; duplicates?: number;
   // Triage Agent
@@ -38,7 +105,7 @@ export type AgentStats = {
 };
 export type AgentLlm = { configured: boolean; provider: string; model: string | null; error: string | null };
 export type Agent = { id: string; name: string; status: 'Active' | 'Standby' | 'Paused' | 'Ready' | 'Not implemented'; purpose: string; tools: string[]; tasks: number; lastActivity: string; input: string; output: string; implemented?: boolean; stats?: AgentStats; llm?: AgentLlm | null };
-export type Approval = { id: string; action: string; resource: string; reason: string; requestedBy: string; risk: Severity; incidentId: string; status: 'Pending' | 'Approved' | 'Rejected' };
+export type Approval = { id: string; action: string; resource: string; reason: string; requestedBy: string; risk: Severity; incidentId: string; status: 'Pending' | 'Approved' | 'Rejected' | 'Expired'; evidenceIds?: string[]; expiresAt?: string; reviewedBy?: string | null; decision?: string | null };
 export type CloudResource = { category: string; name: string; detail: string; status: 'Healthy' | 'At risk' | 'Exposed' | 'Isolated' };
 export type AuditEntry = { id?: string; timestamp: string; agent: string; action: string; decision: string; result: string; incidentId: string; input: string; reason: string; confidence: number | null };
 

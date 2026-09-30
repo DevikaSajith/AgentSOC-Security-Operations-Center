@@ -75,7 +75,7 @@ class TimelineNote(_Strict):
 class AttackStageProposal(_Strict):
     stage: FindingType
     description: str = Field(min_length=5, max_length=300)
-    evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=10)
+    evidence_ids: list[EvidenceId] = Field(max_length=10)  # required key; [] only if unsupported
     certainty: Certainty
 
     _enums = field_validator("stage", "certainty", mode="before")(lambda v: _lower(v))
@@ -104,15 +104,17 @@ class MitreProposal(_Strict):
 
 
 class InvestigationDecision(_Strict):
+    # Every field is REQUIRED (no defaults): with schema-constrained decoding, optional
+    # keys are often omitted by the model (observed with qwen3:4b for evidence_ids).
     summary: str = Field(min_length=20, max_length=900)
     confidence: float = Field(ge=0.0, le=1.0, description="support for the conclusion by the evidence")
     timeline_notes: list[TimelineNote] = Field(min_length=1, max_length=40)
     attack_sequence: list[AttackStageProposal] = Field(min_length=1, max_length=8)
     findings: list[FindingProposal] = Field(min_length=1, max_length=10)
-    mitre_techniques: list[MitreProposal] = Field(default_factory=list, max_length=8)
+    mitre_techniques: list[MitreProposal] = Field(max_length=8)
     root_cause_hypothesis: str = Field(min_length=10, max_length=500)
     unknowns: list[str] = Field(min_length=1, max_length=8)
-    alternative_hypotheses: list[str] = Field(default_factory=list, max_length=5)
+    alternative_hypotheses: list[str] = Field(max_length=5)
     recommended_next_step: InvestigationNextStep
 
     _step = field_validator("recommended_next_step", mode="before")(lambda v: _lower(v))
@@ -174,7 +176,9 @@ class AttackStage(BaseModel):
     stage: FindingType
     description: str
     evidence_ids: list[EvidenceId]
-    certainty: Certainty
+    certainty: Certainty  # final, decided by the backend's classification rules
+    proposed_certainty: Certainty  # what the model proposed
+    classification_note: str | None = None  # why the backend changed it (if it did)
 
 
 class Finding(BaseModel):
@@ -182,8 +186,11 @@ class Finding(BaseModel):
     type: FindingType
     statement: str
     evidence_ids: list[EvidenceId]
-    confidence: float = Field(ge=0.0, le=1.0)
-    classification: Certainty
+    confidence: float = Field(ge=0.0, le=1.0)  # final (capped by evidence rules)
+    classification: Certainty  # final, decided by the backend's classification rules
+    proposed_confidence: float = Field(ge=0.0, le=1.0)
+    proposed_certainty: Certainty
+    classification_note: str | None = None
 
 
 class MitreAssessment(BaseModel):

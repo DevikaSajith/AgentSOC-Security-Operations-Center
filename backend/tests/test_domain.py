@@ -106,7 +106,7 @@ def test_agent_result_rejects_unknown_agent_and_bad_confidence() -> None:
 def test_agent_names_and_ids() -> None:
     assert [a.value for a in AgentName] == ["Monitor Agent", "Triage Agent",
                                             "Investigator Agent", "Compliance Agent",
-                                            "Remediation Agent"]
+                                            "Remediation Agent", "Verification Agent"]
     assert AgentName.INVESTIGATOR.agent_id == "investigator"
 
 

@@ -1,0 +1,50 @@
+# AgentSOC — Compliance Agent policy (loaded by backend/app/agents/compliance/config.py).
+# Bounds, validation policy and fallback settings. Mappings live in compliance_mapping.yaml.
+
+context:
+  max_evidence_items: 40
+  max_string_length: 240
+  max_context_chars: 15000
+
+policy:
+  max_repair_attempts: 1
+  # Assessed statuses other than unknown / not_applicable must cite this many evidence items.
+  min_evidence_for_assessment: 1
+  # "gap" / "violation" style statuses need at least this many OBSERVED items (EV/PR/RS/SF/AS).
+  min_observed_for_adverse_status: 1
+  # Backend rule: a control may keep status "violation" only if a violation rule for that control
+  # matched the observed evidence; otherwise it is downgraded to potential_violation (recorded).
+  violation_requires_matched_rule: true
+  # Model text may not mention statutes/regulations that are not configured, nor legal deadlines.
+  forbidden_text_patterns:
+    - '\b(GDPR|HIPAA|PCI[- ]?DSS|CCPA|SOX|FISMA|FERPA|NIS2|DPDP|GLBA|FedRAMP)\b'
+    - '\b(within|in)\s+\d+\s*(hours?|days?|business days?)\b'
+    - '\b\d+[- ](hour|day)\s+(deadline|window|notification)\b'
+    - '\b(statutory|legally required|breach notification|mandatory (notification|reporting))\b'
+  # Recommendation text must be a review/assessment, never a remediation instruction: a sentence
+  # may not START with one of these verbs (remediation belongs to the Remediation Agent).
+  recommendation_forbidden_patterns:
+    - '(?:^|[.;]\s+)(remove|disable|delete|revoke|isolate|detach|terminate|quarantine|block|rotate|enforce|enable|apply|change|restrict|shut|stop)\b'
+  # Recommendations must come from this controlled list (no free-form instructions/commands).
+  recommendation_types:
+    - review_iam_privileges
+    - review_access_control_configuration
+    - validate_logging_coverage
+    - review_credential_rotation
+    - perform_compliance_team_assessment
+    - review_resource_classification
+    - review_network_controls
+    - review_data_protection_controls
+
+# rule_based_fallback: used ONLY if the request sets allow_rule_based_fallback=true and no valid
+# LLM decision was obtained. Always stored as method=rule_based_fallback.
+fallback:
+  confidence: 0.5
+  control_confidence: 0.5
+
+# Backend-derived "unknowns" that are stated whenever the configuration cannot answer them.
+standing_unknowns:
+  asset_owner: "Asset owner is not available in the simulated environment."
+  jurisdiction: "Jurisdiction / data-residency is not available; framework applicability is not assessed."
+  retention_policy: "No data-retention policy is configured for the affected assets."
+  framework_applicability: "Which frameworks legally or contractually apply to this organisation is unknown; mappings are informational."

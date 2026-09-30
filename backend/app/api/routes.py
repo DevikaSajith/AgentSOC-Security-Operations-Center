@@ -13,9 +13,23 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app import __version__
+from app.agents.compliance.agent import ComplianceAgent, ComplianceRunReport, ComplianceRunRequest
+from app.agents.investigator.agent import (
+    InvestigationRunReport,
+    InvestigationRunRequest,
+    InvestigatorAgent,
+)
 from app.agents.monitor.agent import MonitorAgent
 from app.agents.monitor.models import MonitorRunReport, MonitorRunRequest
 from app.agents.registry import AgentDescriptor, list_agents
+from app.agents.verification.agent import VerificationAgent, VerificationRunReport, VerificationRunRequest
+from app.agents.remediation.agent import RemediationAgent, RemediationRunReport, RemediationRunRequest
+from app.agents.remediation.execution import (
+    ApprovalNotFoundError,
+    ApprovalReport,
+    ApprovalStateError,
+    RemediationExecutor,
+)
 from app.agents.triage.agent import TriageAgent, TriageRunReport, TriageRunRequest
 from app.api.deps import (
     get_attacks,
@@ -23,7 +37,12 @@ from app.api.deps import (
     get_cloud,
     get_event_service,
     get_incident_service,
+    get_compliance_agent,
+    get_investigator_agent,
     get_monitor_agent,
+    get_remediation_agent,
+    get_remediation_executor,
+    get_verification_agent,
     get_triage_agent,
     get_tool_executor,
     get_tool_registry,
@@ -34,6 +53,7 @@ from app.domain.enums import AgentName, EventSource, HumanActor, IncidentStatus,
 from app.domain.events import SecurityEvent
 from app.domain.incident import AuditEntry, IncidentState
 from app.services.agent_runs import AgentRunService
+from app.services.approvals import ApprovalService, ApprovalView
 from app.services.audit_service import AuditService
 from app.services.cloud_service import cloud_overview
 from app.services.event_service import EventService
@@ -145,15 +165,19 @@ def get_incident(incident_id: str,
 def agents(request: Request,
            tools: ToolRegistry = Depends(get_tool_registry)) -> list[AgentDescriptor]:
     """The five agents. Only the Monitor Agent is implemented and reports activity."""
-    stats = triage_stats = None
+    stats, run_stats = None, None
     try:
         with ready_database(request).session() as session:
             stats = MonitorLedgerService(session).stats()
-            triage_stats = AgentRunService(session).stats(AgentName.TRIAGE.value)
+            runs = AgentRunService(session)
+            run_stats = {agent: runs.stats(agent.value)
+                         for agent in (AgentName.TRIAGE, AgentName.INVESTIGATOR, AgentName.COMPLIANCE,
+                                       AgentName.REMEDIATION, AgentName.VERIFICATION)}
+            run_stats[AgentName.REMEDIATION].update(_remediation_extras(session))
+            run_stats[AgentName.VERIFICATION].update(_verification_extras(session))
     except Exception:  # noqa: BLE001 - descriptors are still useful without stats
         logger.warning("agent stats unavailable")
-    return list_agents(tools, monitor_stats=stats, triage_stats=triage_stats,
-                       triage_llm=_llm_info(request))
+    return list_agents(tools, monitor_stats=stats, run_stats=run_stats, llm=_llm_info(request))
 
 
 def _llm_info(request: Request) -> dict[str, Any]:
@@ -190,6 +214,58 @@ def run_triage(body: TriageRunRequest,
     return agent.run(body)
 
 
+@router.post("/agents/compliance/run")
+def run_compliance(body: ComplianceRunRequest,
+                   incidents: IncidentService = Depends(get_incident_service),
+                   agent: ComplianceAgent = Depends(get_compliance_agent)) -> ComplianceRunReport:
+    """Assess ONE investigated incident against the configured controls/frameworks (read-only,
+    LLM + validation). Never runs another agent. An uninvestigated incident returns
+    status=skipped / outcome=investigation_required. Failed runs return 200 with status=failed and
+    the incident unchanged. Not legal advice."""
+    if incidents.get(body.incident_id) is None:
+        raise HTTPException(404, f"incident '{body.incident_id}' not found")
+    return agent.run(body)
+
+
+@router.post("/agents/remediation/run")
+def run_remediation(body: RemediationRunRequest,
+                    incidents: IncidentService = Depends(get_incident_service),
+                    agent: RemediationAgent = Depends(get_remediation_agent)) -> RemediationRunReport:
+    """PLAN a remediation for ONE compliance-assessed incident (LLM proposal + backend validation + policy).
+    This never executes anything: it stores the plan and creates a pending human approval. A missing
+    compliance assessment returns status=skipped / outcome=compliance_required (Compliance is not run
+    automatically). Failed runs return 200 with status=failed and create no approval."""
+    if incidents.get(body.incident_id) is None:
+        raise HTTPException(404, f"incident '{body.incident_id}' not found")
+    return agent.run(body)
+
+
+@router.post("/agents/verification/run")
+def run_verification(body: VerificationRunRequest,
+                     incidents: IncidentService = Depends(get_incident_service),
+                     agent: VerificationAgent = Depends(get_verification_agent)) -> VerificationRunReport:
+    """VERIFY ONE remediated incident: read the target's current state and compare BEFORE / EXPECTED / ACTUAL
+    (deterministic, read-only). It never executes, approves or retries a remediation. A remediation that is
+    pending / not executed returns status=skipped with outcome remediation_not_ready / remediation_not_executed.
+    A failed verification (state not achieved) is a normal 200 result with verification_status=failed."""
+    if incidents.get(body.incident_id) is None:
+        raise HTTPException(404, f"incident '{body.incident_id}' not found")
+    return agent.run(body)
+
+
+@router.post("/agents/investigator/run")
+def run_investigator(body: InvestigationRunRequest,
+                     incidents: IncidentService = Depends(get_incident_service),
+                     agent: InvestigatorAgent = Depends(get_investigator_agent)) -> InvestigationRunReport:
+    """Investigate ONE triaged incident (read-only evidence + LLM + validation).
+    Never runs Triage, Compliance or Remediation. An untriaged incident returns
+    status=skipped / outcome=triage_required unless allow_untriaged=true. Failed runs
+    return 200 with status=failed; the incident is left unchanged."""
+    if incidents.get(body.incident_id) is None:
+        raise HTTPException(404, f"incident '{body.incident_id}' not found")
+    return agent.run(body)
+
+
 @router.post("/agents/monitor/run")
 def run_monitor(body: MonitorRunRequest | None = None,
                 agent: MonitorAgent = Depends(get_monitor_agent)) -> MonitorRunReport:
@@ -216,10 +292,84 @@ def audit(incident_id: str | None = None, limit: int = Query(200, ge=1, le=1000)
     return service.list_entries(incident_id=incident_id, limit=limit)
 
 
+class ApprovalDecisionRequest(BaseModel):
+    """Optional analyst comment. Unknown fields are rejected: a decision can never carry an action,
+    a target or arguments - those are fixed in the stored proposal."""
+
+    model_config = {"extra": "forbid"}
+    comment: str | None = Field(default=None, max_length=500)
+
+
+def _verification_extras(session: Any) -> dict[str, Any]:
+    from sqlalchemy import func, select
+
+    from app.database.models import AgentRunRecord
+    rows = dict(session.execute(select(AgentRunRecord.outcome, func.count(AgentRunRecord.id)).where(
+        AgentRunRecord.agent == AgentName.VERIFICATION.value).group_by(AgentRunRecord.outcome)).all())
+    skipped = session.scalar(select(func.count(AgentRunRecord.id)).where(
+        AgentRunRecord.agent == AgentName.VERIFICATION.value, AgentRunRecord.status == "skipped")) or 0
+    return {"verified": rows.get("verified", 0), "verification_failed": rows.get("verification_failed", 0),
+            "partial": rows.get("verification_partial", 0), "unknown": rows.get("verification_unknown", 0),
+            "skipped": skipped, "method": "deterministic"}
+
+
+def _remediation_extras(session: Any) -> dict[str, Any]:
+    from sqlalchemy import func, select
+
+    from app.database.models import AgentRunRecord
+    executed = session.scalar(select(func.count(AgentRunRecord.id)).where(
+        AgentRunRecord.agent == AgentName.REMEDIATION.value, AgentRunRecord.outcome == "action_executed")) or 0
+    return {"pending_approvals": ApprovalService(session).count("pending"), "executed_actions": executed}
+
+
 @router.get("/approvals")
-def approvals() -> list[dict[str, Any]]:
-    """Pending human approvals. The approval workflow arrives with the Remediation Agent."""
-    return []
+def approvals(request: Request, status: Literal["pending", "approved", "rejected", "expired"] | None = None,
+              incident_id: str | None = None, limit: int = Query(100, ge=1, le=500)) -> list[ApprovalView]:
+    """Human approval requests for remediation proposals, newest first (open ones lapse at expires_at)."""
+    with ready_database(request).session() as session:
+        return ApprovalService(session).list(status=status, incident_id=incident_id, limit=limit)
+
+
+@router.get("/approvals/{approval_id}")
+def get_approval(approval_id: str, request: Request) -> ApprovalView:
+    with ready_database(request).session() as session:
+        view = ApprovalService(session).get(approval_id)
+    if view is None:
+        raise HTTPException(404, f"approval '{approval_id}' not found")
+    return view
+
+
+def _decide(action: Any, approval_id: str, *args: Any) -> ApprovalReport:
+    try:
+        return action(approval_id, *args)
+    except ApprovalNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ApprovalStateError as exc:
+        raise HTTPException(409, {"detail": str(exc), "code": exc.code}) from None
+
+
+@router.post("/approvals/{approval_id}/approve")
+def approve_approval(approval_id: str, body: ApprovalDecisionRequest | None = None,
+                     executor: RemediationExecutor = Depends(get_remediation_executor)) -> ApprovalReport:
+    """The human approves this EXACT proposal. The backend then re-validates it against the current cloud
+    state and the policy, checks the kill switch, and executes through the ToolExecutor. The outcome says
+    what happened (executed, actions_disabled, stale_remediation_plan, ...)."""
+    return _decide(executor.approve, approval_id, body.comment if body else None)
+
+
+@router.post("/approvals/{approval_id}/reject")
+def reject_approval(approval_id: str, body: ApprovalDecisionRequest | None = None,
+                    executor: RemediationExecutor = Depends(get_remediation_executor)) -> ApprovalReport:
+    """The human rejects the proposal. Nothing is executed."""
+    return _decide(executor.reject, approval_id, body.comment if body else None)
+
+
+@router.post("/approvals/{approval_id}/execute")
+def execute_approval(approval_id: str,
+                     executor: RemediationExecutor = Depends(get_remediation_executor)) -> ApprovalReport:
+    """Execute an ALREADY approved proposal (e.g. after the kill switch was switched on). All gates are
+    re-checked; nothing about the action can be changed here."""
+    return _decide(executor.execute, approval_id)
 
 
 # ------------------------------------------------------------------------------ cloud

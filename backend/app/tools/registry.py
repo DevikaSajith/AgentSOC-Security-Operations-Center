@@ -23,7 +23,13 @@ DEFAULT_PERMISSIONS: dict[Actor, frozenset[str]] = {
         "get_incident", "get_resource", "get_iam_entity", "get_asset_context",
         "check_policy"}),
     AgentName.REMEDIATION: frozenset({
-        "get_incident", "get_resource", "check_policy"}) | ACTION_TOOL_NAMES,
+        "get_incident", "get_resource", "get_iam_entity", "get_cloudtrail_events",
+        "get_security_findings", "get_network_events", "get_asset_context",
+        "check_policy"}) | ACTION_TOOL_NAMES,
+    # Read-only by construction: the Verification Agent has NO action tool.
+    AgentName.VERIFICATION: frozenset({
+        "get_incident", "get_resource", "get_iam_entity", "get_cloudtrail_events",
+        "get_security_findings", "get_network_events", "get_asset_context", "check_policy"}),
     HumanActor.ANALYST: frozenset({"get_incident", "get_resource", "check_policy"})
     | ACTION_TOOL_NAMES,
     HumanActor.SYSTEM: frozenset(),

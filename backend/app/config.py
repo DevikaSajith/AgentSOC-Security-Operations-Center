@@ -47,6 +47,9 @@ class Settings:
     ollama_base_url: str = "http://localhost:11434"
     llm_timeout_seconds: int = 180
     ollama_num_ctx: int = 8192  # context window; Ollama's default may truncate agent prompts
+    # Global kill switch: while false NO agent may execute an action tool, whatever was proposed
+    # or approved. Off by default; set AGENT_ACTIONS_ENABLED=true to allow approved actions.
+    agent_actions_enabled: bool = False
 
     @property
     def database_backend(self) -> str:
@@ -86,6 +89,7 @@ def get_settings() -> Settings:
         ollama_base_url=os.getenv("OLLAMA_BASE_URL", "").strip() or "http://localhost:11434",
         llm_timeout_seconds=_int("LLM_TIMEOUT_SECONDS", 180),
         ollama_num_ctx=_int("OLLAMA_NUM_CTX", 8192),
+        agent_actions_enabled=os.getenv("AGENT_ACTIONS_ENABLED", "").strip().lower() in ("1", "true", "yes", "on"),
     )
 
 

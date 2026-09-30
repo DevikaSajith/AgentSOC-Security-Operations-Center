@@ -92,6 +92,8 @@ class ToolExecutor:
             return ("approval_required", f"'{spec.name}' requires an approved human decision")
         if grant.tool_name != spec.name or grant.incident_id != request.incident_id:
             return ("approval_mismatch", "the approval does not cover this action/incident")
+        if grant.arguments is not None and grant.arguments != request.arguments:
+            return ("approval_mismatch", "the approval does not cover these arguments")
         return None
 
     # ----------------------------------------------------------------- helpers

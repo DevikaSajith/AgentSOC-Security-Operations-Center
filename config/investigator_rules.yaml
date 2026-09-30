@@ -13,15 +13,21 @@ context:
 
 policy:
   max_repair_attempts: 1
-  # Every finding must cite evidence; findings at/above this confidence need more.
+  # --- classification rules: the backend (not the model) decides what counts as
+  # "confirmed" and how confident a finding may be. Over-claims are DOWNGRADED and the
+  # model's proposal is stored next to the final value with a note (never silent).
+  # Findings above this confidence must cite at least N distinct evidence items,
+  # otherwise their confidence is capped just below the threshold.
   high_confidence_threshold: 0.8
   high_confidence_min_evidence: 2
   # "confirmed" findings/stages must cite at least this many OBSERVED items (events,
-  # IAM/resource state, security findings) - earlier agents' opinions do not count.
+  # IAM/resource state, security findings) - earlier agents' opinions do not count;
+  # otherwise they become "suspected".
   confirmed_min_observed_evidence: 1
-  # Critical-impact finding types need multiple evidence items when marked confirmed.
+  # Critical-impact findings need multiple evidence items to stay "confirmed".
   critical_finding_types: [privilege_escalation, credential_access, exfiltration, impact]
   critical_confirmed_min_evidence: 2
+  # --- hard rules: a violation rejects the answer (one repair attempt).
   # Every MITRE technique must exist in config/mitre_mapping.yaml and cite evidence.
   mitre_min_evidence: 1
   # The summary must name at least one concrete entity (principal, IP or resource) from
@@ -29,6 +35,9 @@ policy:
   summary_must_name_entity: true
   # "close" cannot be recommended while any finding is confirmed.
   close_forbidden_with_confirmed_findings: true
+  # If any critical-type finding is at least "suspected", the next step must be one of these
+  # (i.e. not "monitor"/"close").
+  critical_findings_require_next_step: [compliance_review, escalate]
 
 # Backend rule for MITRE status: a proposed technique is "confirmed" only if its cited
 # evidence contains an event listed in the technique's relevant_events AND the proposal's

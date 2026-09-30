@@ -77,7 +77,7 @@ def test_later_stages_are_left_pending(agent, database, attacks) -> None:
     agent.run(MonitorRunRequest(event_ids=run_scenario(database, attacks, "public_s3_exposure")))
     incident = incidents(database)[0]
     assert incident.investigation is None and incident.mitre_techniques == []
-    assert incident.compliance_findings == [] and incident.remediation_plan is None
+    assert incident.compliance is None and incident.remediation_plan is None
     assert incident.verification_result is None and incident.approval_required is False
     assert [d.actor for d in incident.agent_decisions] == [AgentName.MONITOR]
 
@@ -355,7 +355,9 @@ def test_simulation_with_explicit_monitor_opt_in(client: TestClient) -> None:
     assert monitor["tasks_processed"] == 4 and monitor["last_activity"]
     assert monitor["last_result"]["outcome"] == "incident_created"
     assert agents[1]["stats"]["runs"] == 0  # Monitor never invokes Triage
-    assert all(a["stats"] is None for a in agents[2:])
+    assert agents[2]["stats"]["runs"] == 0  # nor the Investigator
+    assert agents[3]["stats"]["runs"] == 0  # nor the Compliance Agent
+    assert agents[4]["stats"]["runs"] == 0  # nor the Remediation Agent
     audit = [e["action"] for e in client.get("/api/audit").json()]
     assert "monitor.run" in audit and "monitor.create_incident" in audit
     assert all(e["actor"] != "Triage Agent" for e in client.get("/api/audit").json())

@@ -15,6 +15,7 @@ from app.domain.enums import (
     VerificationStatus,
     normalize_agent_name,
 )
+from app.domain.compliance import ComplianceAssessment
 from app.domain.events import SIMULATED_ACCOUNT_ID, SecurityEvent
 from app.domain.investigation import InvestigationAssessment
 from app.domain.incident import (
@@ -22,7 +23,6 @@ from app.domain.incident import (
     AffectedResource,
     AgentDecision,
     AuditEntry,
-    ComplianceFinding,
     Evidence,
     IncidentState,
     MitreTechnique,
@@ -33,7 +33,7 @@ from app.domain.incident import (
 
 __all__ = [
     "Actor", "AffectedResource", "AgentAction", "AgentDecision", "AgentName", "AgentResult", "AgentRunStatus",
-    "ApprovalStatus", "AuditEntry", "ComplianceFinding", "EventSource", "Evidence",
+    "ApprovalStatus", "AuditEntry", "ComplianceAssessment", "EventSource", "Evidence",
     "HumanActor", "IncidentCategory", "IncidentState", "IncidentStatus", "InvestigationAssessment",
     "MitreTechnique", "Priority", "ProposedAction", "RemediationPlan", "RemediationStatus",
     "RemediationStep", "SIMULATED_ACCOUNT_ID", "SecurityEvent", "Severity",

@@ -1,0 +1,193 @@
+# AgentSOC — Compliance mapping (project-owned; the ONLY source the Compliance Agent may use).
+#
+# IMPORTANT
+#  * This is a security-engineering aid, NOT legal advice and NOT an audit result.
+#  * Only frameworks, controls, rules and classifications defined in this file can appear in an
+#    assessment. Anything not defined here is reported as "unknown" / "requires_manual_assessment".
+#  * The framework control identifiers below are this project's own mapping table for a SIMULATED
+#    environment. Verify them against the official framework text before relying on them.
+#  * No regulation, statute, deadline or notification duty is defined here on purpose.
+#    Reporting rules below are INTERNAL process rules only.
+
+frameworks:
+  NIST_CSF:
+    name: "NIST Cybersecurity Framework"
+    version: "2.0"
+  ISO_27001:
+    name: "ISO/IEC 27001 (Annex A)"
+    version: "2022"
+  SOC2:
+    name: "SOC 2 Trust Services Criteria"
+    version: "2017"
+  CIS_CONTROLS:
+    name: "CIS Critical Security Controls"
+    version: "v8"
+
+# ---------------------------------------------------------------------------- controls
+# `triggers` decide (deterministically, before any LLM call) which controls an incident touches:
+#   event_types: incident event types that engage the control
+#   mitre:       confirmed/candidate MITRE technique ids that engage the control
+#   resource_types: resource types involved in the incident that engage the control
+#   always: true -> always a candidate (the incident-response process itself)
+controls:
+  access_control:
+    name: "Access Control"
+    description: "Access to systems and data is restricted to authorised identities."
+    triggers:
+      event_types: [Login, ConsoleLogin, AssumeRole, GetObject, PutBucketPolicy]
+      mitre: [T1078, T1078.004]
+    frameworks:
+      NIST_CSF:
+        - {id: "PR.AA-05", title: "Access permissions and authorizations are managed and enforced"}
+      ISO_27001:
+        - {id: "A.5.15", title: "Access control"}
+      SOC2:
+        - {id: "CC6.1", title: "Logical access security"}
+      CIS_CONTROLS:
+        - {id: "6", title: "Access Control Management"}
+
+  least_privilege:
+    name: "Least Privilege / Privileged Access"
+    description: "Privileged rights are limited, approved and reviewed."
+    triggers:
+      event_types: [AttachAdminPolicy, AttachUserPolicy, AssumeRole]
+      mitre: [T1098, T1098.003]
+    frameworks:
+      NIST_CSF:
+        - {id: "PR.AA-05", title: "Access permissions incorporate least privilege"}
+      ISO_27001:
+        - {id: "A.8.2", title: "Privileged access rights"}
+      SOC2:
+        - {id: "CC6.3", title: "Role-based access and least privilege"}
+      CIS_CONTROLS:
+        - {id: "6.8", title: "Define and maintain role-based access control"}
+
+  credential_management:
+    name: "Credential Management"
+    description: "Credentials and secrets are issued, stored, used and rotated securely."
+    triggers:
+      event_types: [CreateAccessKey, GetSecretValue]
+      mitre: [T1098.001, T1555, T1555.006]
+    frameworks:
+      NIST_CSF:
+        - {id: "PR.AA-01", title: "Identities and credentials are managed"}
+      ISO_27001:
+        - {id: "A.5.17", title: "Authentication information"}
+      SOC2:
+        - {id: "CC6.1", title: "Logical access security"}
+      CIS_CONTROLS:
+        - {id: "5", title: "Account Management"}
+
+  data_protection:
+    name: "Data Protection"
+    description: "Stored data is protected from unauthorised access and exposure."
+    triggers:
+      event_types: [GetObject, PutBucketPolicy, DeletePublicAccessBlock, GetSecretValue]
+      mitre: [T1530, T1041]
+      resource_types: [S3Bucket, Secret]
+    frameworks:
+      NIST_CSF:
+        - {id: "PR.DS-01", title: "Data-at-rest is protected"}
+      ISO_27001:
+        - {id: "A.8.3", title: "Information access restriction"}
+      SOC2:
+        - {id: "CC6.1", title: "Logical access security"}
+      CIS_CONTROLS:
+        - {id: "3.3", title: "Configure data access control lists"}
+
+  network_security:
+    name: "Network Security"
+    description: "Network traffic is restricted, monitored and unusual flows are detected."
+    triggers:
+      event_types: [NetworkFlowAnomaly, AuthorizeSecurityGroupIngress, ExecuteCommand]
+      mitre: [T1071, T1071.001, T1041, T1651]
+      resource_types: [EC2Instance, SecurityGroup]
+    frameworks:
+      NIST_CSF:
+        - {id: "DE.CM-01", title: "Networks are monitored for adverse events"}
+      ISO_27001:
+        - {id: "A.8.20", title: "Networks security"}
+      SOC2:
+        - {id: "CC6.6", title: "Boundary protection"}
+      CIS_CONTROLS:
+        - {id: "13", title: "Network Monitoring and Defense"}
+
+  logging_monitoring:
+    name: "Logging & Monitoring"
+    description: "Activity is logged and monitored so incidents are detected and reconstructed."
+    triggers:
+      event_types: [DeleteTrail, StopLogging, UpdateTrail]
+      mitre: [T1562, T1562.008]
+    frameworks:
+      NIST_CSF:
+        - {id: "DE.CM-09", title: "Computing and cloud environments are monitored"}
+      ISO_27001:
+        - {id: "A.8.15", title: "Logging"}
+      SOC2:
+        - {id: "CC7.2", title: "Monitoring of system components"}
+      CIS_CONTROLS:
+        - {id: "8", title: "Audit Log Management"}
+
+  incident_response:
+    name: "Incident Response"
+    description: "Security incidents are assessed, escalated and handled through a defined process."
+    triggers:
+      always: true
+    frameworks:
+      NIST_CSF:
+        - {id: "RS.MA-01", title: "The incident response plan is executed"}
+      ISO_27001:
+        - {id: "A.5.26", title: "Response to information security incidents"}
+      SOC2:
+        - {id: "CC7.4", title: "Incident response"}
+      CIS_CONTROLS:
+        - {id: "17", title: "Incident Response Management"}
+
+# ------------------------------------------------------------------ asset classification
+# Explicit project metadata about the SIMULATED assets. Assets not listed here are "unknown":
+# a classification is never inferred from a name. `environment` is informational.
+asset_metadata:
+  "Secret/prod/db-password":
+    classification: restricted
+    environment: production
+    basis: "Project asset metadata (production database credential)"
+  "S3Bucket/company-data":
+    classification: confidential
+    environment: production
+    basis: "Project asset metadata (company data bucket)"
+  "S3Bucket/public-assets":
+    classification: public
+    environment: production
+    basis: "Project asset metadata (intentionally public bucket)"
+
+# ------------------------------------------------------------------ violation rules
+# The ONLY way an assessment can carry status "violation". A rule matches when the incident's
+# OBSERVED evidence contains at least one event of `requires_event_types` and, if given, every
+# Monitor indicator in `requires_indicators`. The rule's `control` must be the assessed control.
+violation_rules:
+  - id: VR-PRIV-001
+    control: least_privilege
+    description: "An administrative policy was attached to a principal from an untrusted source IP."
+    requires_event_types: [AttachAdminPolicy]
+    requires_indicators: [untrusted_source_ip]
+  - id: VR-DATA-001
+    control: data_protection
+    description: "Public-access protections on a bucket were removed from an untrusted source IP."
+    requires_event_types: [DeletePublicAccessBlock]
+    requires_indicators: [untrusted_source_ip]
+
+# ------------------------------------------------------------------ reporting rules
+# INTERNAL process rules only. There are deliberately NO legal or statutory rules here; any
+# other reporting question is "requires_manual_assessment". A rule matches when the incident
+# severity is at least `min_severity` and an assessed control is in `controls_any`.
+reporting_rules:
+  - id: RPT-INT-001
+    description: "Internal escalation to the security team lead for high-severity access or credential incidents."
+    min_severity: high
+    controls_any: [least_privilege, access_control, credential_management]
+    requirement: internal_escalation
+  - id: RPT-INT-002
+    description: "Compliance-team review for incidents touching restricted or confidential data."
+    min_severity: medium
+    data_classifications_any: [restricted, confidential]
+    requirement: compliance_team_review

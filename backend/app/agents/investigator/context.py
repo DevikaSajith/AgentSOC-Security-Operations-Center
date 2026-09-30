@@ -99,12 +99,41 @@ class InvestigationContextBuilder:
                                   "matched_evidence": c["matched_evidence_ids"]} for c in candidates],
             "stage_hints_by_event_type": stage_hints,
             "known_limitations": catalog.limitations,
+            "rules_your_answer_must_follow": self._rules_text(),
             "allowed": {"evidence_ids": list(catalog.items),
                         "timeline_evidence_ids": [t.evidence_id for t in timeline],
                         "mitre_technique_ids": sorted(load_techniques(self._config_dir))},
         }, rules.max_string_length)
         payload = self._fit(payload, catalog)
         return InvestigationContext(catalog, timeline, entities, relationships, candidates, payload)
+
+    def _rules_text(self) -> list[str]:
+        """The validation policy, generated from investigator_rules.yaml so the model is told
+        exactly what will be checked (qwen3:4b otherwise over-claims and cannot repair)."""
+        p, m = self._config.policy, self._config.mitre_confirmation
+        critical = ", ".join(t.value for t in p.critical_finding_types)
+        rules = [
+            "Every finding cites at least 1 evidence id.",
+            f"A finding with confidence >= {p.high_confidence_threshold} must cite at least "
+            f"{p.high_confidence_min_evidence} different evidence ids (e.g. the event AND the PR/RS state it changed).",
+            f"'confirmed' findings and stages must cite at least {p.confirmed_min_observed_evidence} "
+            "observed item (EV, PR, RS or SF); MF/TR alone can never confirm anything.",
+            f"A confirmed finding of type {critical} must cite at least "
+            f"{p.critical_confirmed_min_evidence} different evidence ids; otherwise use 'suspected'.",
+            "A stage or finding with weaker support should be 'suspected' or 'possible' with lower confidence.",
+            "The backend re-checks every certainty and confidence: over-claims are downgraded and "
+            "recorded as such, so claim only what the cited evidence shows.",
+            f"Each MITRE technique cites the events that match it; it counts as confirmed only if a cited "
+            f"event is one of its relevant events and its confidence >= {m.min_confidence}.",
+        ]
+        if p.summary_must_name_entity:
+            rules.append("The summary must name the concrete principal, IP(s) and resource(s).")
+        if p.close_forbidden_with_confirmed_findings:
+            rules.append("Do not recommend 'close' if any finding is confirmed.")
+        if p.critical_findings_require_next_step:
+            rules.append(f"If any {critical} finding is confirmed or suspected, recommended_next_step must be "
+                         f"one of: {', '.join(s.value for s in p.critical_findings_require_next_step)}.")
+        return rules
 
     def _fit(self, payload: dict[str, Any], catalog: EvidenceCatalog) -> dict[str, Any]:
         """Trim relationships, then entity detail, then descriptions until the size cap fits."""

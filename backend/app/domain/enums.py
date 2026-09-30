@@ -42,6 +42,16 @@ class IncidentStatus(str, Enum):
     TRIAGED = "triaged"
     INVESTIGATING = "investigating"
     INVESTIGATED = "investigated"
+    COMPLIANCE_ASSESSED = "compliance_assessed"
+    REMEDIATION_PENDING = "remediation_pending"
+    REMEDIATION_APPROVED = "remediation_approved"
+    REMEDIATION_REJECTED = "remediation_rejected"
+    REMEDIATION_FAILED = "remediation_failed"
+    REMEDIATED = "remediated"
+    VERIFIED = "verified"
+    VERIFICATION_FAILED = "verification_failed"
+    PARTIAL_REMEDIATION = "partial_remediation"
+    VERIFICATION_UNKNOWN = "verification_unknown"
     AWAITING_APPROVAL = "awaiting_approval"
     REMEDIATING = "remediating"
     CONTAINED = "contained"
@@ -79,13 +89,14 @@ class VerificationStatus(str, Enum):
 
 
 class AgentName(str, Enum):
-    """The five AgentSOC agents. These display names are used everywhere."""
+    """The six AgentSOC agents. These display names are used everywhere."""
 
     MONITOR = "Monitor Agent"
     TRIAGE = "Triage Agent"
     INVESTIGATOR = "Investigator Agent"
     COMPLIANCE = "Compliance Agent"
     REMEDIATION = "Remediation Agent"
+    VERIFICATION = "Verification Agent"
 
     @property
     def agent_id(self) -> str:
@@ -148,6 +159,7 @@ LEGACY_AGENT_NAMES: dict[str, AgentName] = {
     "InvestigatorAgent": AgentName.INVESTIGATOR,
     "ComplianceAgent": AgentName.COMPLIANCE,
     "RemediationAgent": AgentName.REMEDIATION,
+    "VerificationAgent": AgentName.VERIFICATION,
 }
 
 

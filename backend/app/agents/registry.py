@@ -1,7 +1,7 @@
 """Descriptions of the five agents and which are implemented.
 
-Monitor and Triage are implemented. The other three report `implemented: false`, no
-activity and no results. Permitted tools always come from the tool registry.
+Monitor, Triage, Investigator, Compliance and Remediation are implemented; the Verification stage is not an
+agent yet. Permitted tools always come from the tool registry.
 """
 
 from typing import Any, Literal
@@ -13,7 +13,10 @@ from app.tools.registry import ToolRegistry
 
 AgentStatus = Literal["not_implemented", "idle", "running", "paused", "error"]
 
-IMPLEMENTED = frozenset({AgentName.MONITOR, AgentName.TRIAGE})
+IMPLEMENTED = frozenset({AgentName.MONITOR, AgentName.TRIAGE, AgentName.INVESTIGATOR, AgentName.COMPLIANCE,
+                         AgentName.REMEDIATION,
+                         AgentName.VERIFICATION})
+LLM_AGENTS = frozenset({AgentName.TRIAGE, AgentName.INVESTIGATOR, AgentName.COMPLIANCE, AgentName.REMEDIATION})
 
 
 class AgentDescriptor(BaseModel):
@@ -41,22 +44,29 @@ _AGENTS: tuple[tuple[AgentName, str, str, str], ...] = (
      "decides whether investigation is required.",
      "New IncidentState", "Triaged IncidentState"),
     (AgentName.INVESTIGATOR,
-     "Reconstructs the attack chain, collects evidence and maps MITRE ATT&CK techniques.",
-     "Triaged IncidentState", "Investigation + evidence"),
+     "Evidence-first investigation: timeline, entities, attack sequence, findings and "
+     "backend-validated MITRE ATT&CK techniques.",
+     "Triaged IncidentState", "Investigated IncidentState"),
     (AgentName.COMPLIANCE,
-     "Evaluates the incident and proposed actions against security policies and controls.",
-     "Investigated IncidentState", "Compliance findings"),
+     "Maps the investigated incident to configured security controls and framework requirements; "
+     "separates control gaps from violations; states what is unknown. Not legal advice.",
+     "Investigated IncidentState", "Compliance-assessed IncidentState"),
     (AgentName.REMEDIATION,
-     "Proposes allow-listed containment actions; executes only after human approval.",
-     "Compliance-checked IncidentState", "Remediation plan + verification"),
+     "LLM-planned, policy-validated containment proposal. Executes an allow-listed action only after a human "
+     "approves it, with the kill switch on, through the ToolExecutor.",
+     "Compliance-assessed IncidentState", "Remediation proposal, approval and execution result"),
+    (AgentName.VERIFICATION,
+     "Read-only, deterministic check that the executed remediation achieved its expected security effect: "
+     "compares the recorded BEFORE state, the EXPECTED state and the ACTUAL current state. Never executes or retries.",
+     "Remediated IncidentState", "Verified / failed / partial / unknown IncidentState"),
 )
 
 
 def list_agents(tools: ToolRegistry, monitor_stats: dict[str, Any] | None = None,
-                triage_stats: dict[str, Any] | None = None,
-                triage_llm: dict[str, Any] | None = None) -> list[AgentDescriptor]:
+                run_stats: dict[AgentName, dict[str, Any]] | None = None,
+                llm: dict[str, Any] | None = None) -> list[AgentDescriptor]:
     """Stats come from MonitorLedgerService.stats() / AgentRunService.stats() (None if
-    unavailable); `triage_llm` describes the configured provider (never credentials)."""
+    unavailable); `llm` describes the configured provider (never credentials)."""
     agents = []
     for name, purpose, inp, out in _AGENTS:
         descriptor = AgentDescriptor(agent_id=name.agent_id, name=name, purpose=purpose,
@@ -69,12 +79,13 @@ def list_agents(tools: ToolRegistry, monitor_stats: dict[str, Any] | None = None
                 descriptor.last_activity = monitor_stats["last_run_at"]
                 descriptor.last_result = monitor_stats["last_result"]
                 descriptor.stats = {k: v for k, v in monitor_stats.items() if k != "last_result"}
-            if name == AgentName.TRIAGE:
-                descriptor.llm = triage_llm
-                if triage_stats is not None:
-                    descriptor.tasks_processed = triage_stats["runs"]
-                    descriptor.last_activity = triage_stats["last_run_at"]
-                    descriptor.last_result = triage_stats["last_result"]
-                    descriptor.stats = {k: v for k, v in triage_stats.items() if k != "last_result"}
+            if name in LLM_AGENTS or name == AgentName.VERIFICATION:
+                descriptor.llm = llm if name in LLM_AGENTS else None
+                stats = (run_stats or {}).get(name)
+                if stats is not None:
+                    descriptor.tasks_processed = stats["runs"]
+                    descriptor.last_activity = stats["last_run_at"]
+                    descriptor.last_result = stats["last_result"]
+                    descriptor.stats = {k: v for k, v in stats.items() if k != "last_result"}
         agents.append(descriptor)
     return agents

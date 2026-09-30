@@ -1,0 +1,100 @@
+# AgentSOC - Remediation Agent policy (loaded by backend/app/agents/remediation/config.py).
+#
+# The LLM only PROPOSES one of the actions below. Everything here is enforced by the backend:
+# what may be proposed, what risk it carries, whether a human must approve it, which resources are
+# protected, and how the proposal is validated. The model can never lower a risk or waive approval.
+# Authority chain: proposal -> validation -> THIS policy -> human approval -> kill switch
+# (AGENT_ACTIONS_ENABLED) -> ToolExecutor -> simulator.
+
+context:
+  max_evidence_items: 30
+  max_string_length: 240
+  max_context_chars: 12000
+
+approval:
+  # An approval request (and an approval not yet executed) lapses after this many minutes.
+  ttl_minutes: 60
+
+policy:
+  max_repair_attempts: 1
+  # Actions other than no_action must cite this many evidence ids, of which this many OBSERVED
+  # (AS/CS/EV/PR/RS/SF). IF/MT/MF/TR are earlier agents' opinions and do not count as observed.
+  min_evidence_for_action: 1
+  min_observed_for_action: 1
+  # Model text may not contain shell / cloud CLI / SQL / code. (No backslashes: plain character classes.)
+  forbidden_text_patterns:
+    - '(?i)(^|[^a-z])(sudo|rm -rf|chmod|curl|wget|powershell|cmd[.]exe|bash -c)([^a-z]|$)'
+    - '(?i)aws[ ]+(iam|ec2|s3|s3api|sts|configure)'
+    - '(?i)(drop|delete|insert|update)[ ]+(table|from|into)|select[ ]+[*][ ]+from'
+    - '(?i)https?://'
+    - '```'
+  # Order used by the deterministic rule_based_fallback when several actions are applicable
+  # (least disruptive first).
+  fallback_priority:
+    - remove_admin_privileges
+    - make_bucket_private
+    - disable_access_key
+    - isolate_instance
+  fallback_confidence: 0.5
+
+# Resources no remediation may touch ("ResourceType/id"). Checked when candidates are built and
+# again immediately before execution.
+protected_resources:
+  "S3Bucket/public-assets": "intentionally public static-assets bucket (see compliance_mapping.yaml)"
+
+# Each entry exists only for an action tool that is registered in the tool layer.
+actions:
+  remove_admin_privileges:
+    enabled: true
+    risk: medium
+    requires_approval: true
+    resource_type: IAMUser
+    argument: username
+    # Applicable only while the target currently satisfies these state fields.
+    requires_state: {admin: true}
+    postcondition: {admin: false}
+    fingerprint_fields: [admin]
+    relevant_event_types: [AttachAdminPolicy, CreateAccessKey, Login]
+    description: "Revoke admin privileges from the IAM user"
+    rollback_available: false
+    rollback_description: "No rollback tool is registered. The simulator has an inverse (make_user_admin) but it is not an allowed tool; an analyst must restore privileges manually if needed."
+  disable_access_key:
+    enabled: true
+    risk: high
+    requires_approval: true
+    resource_type: IAMUser
+    argument: username
+    requires_state: {access_key_active: true}
+    postcondition: {access_key_active: false}
+    fingerprint_fields: [access_key_active]
+    relevant_event_types: [Login, CreateAccessKey, GetSecretValue, ListBuckets, GetObject]
+    requires_indicators_any: [untrusted_source_ip, principal_ip_change]
+    description: "Deactivate all access keys of the IAM user (blocks the user's programmatic access)"
+    rollback_available: false
+    rollback_description: "No rollback tool is registered (the simulator's enable_access_key is not an allowed tool); an analyst must re-enable keys manually."
+  isolate_instance:
+    enabled: true
+    risk: high
+    requires_approval: true
+    resource_type: EC2Instance
+    argument: instance_id
+    requires_state: {status: running}
+    postcondition: {status: isolated}
+    fingerprint_fields: [status, iam_role]
+    relevant_event_types: [ExecuteCommand, AssumeRole, NetworkFlowAnomaly]
+    description: "Quarantine the EC2 instance (stops its normal operation)"
+    rollback_available: false
+    rollback_description: "No rollback tool is registered (the simulator's restore_instance is not an allowed tool); an analyst must restore the instance manually."
+  make_bucket_private:
+    enabled: true
+    risk: medium
+    requires_approval: true
+    resource_type: S3Bucket
+    argument: bucket_name
+    requires_state: {public_access: true}
+    postcondition: {public_access: false}
+    fingerprint_fields: [public_access]
+    relevant_event_types: [PutBucketPolicy, DeletePublicAccessBlock, GetObject]
+    description: "Block public access to the S3 bucket"
+    rollback_available: false
+    rollback_description: "No rollback tool is registered (the simulator's make_bucket_public is not an allowed tool); an analyst must restore access manually."

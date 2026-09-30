@@ -107,6 +107,8 @@ class ApprovalGrant(BaseModel):
     tool_name: str = Field(min_length=1)
     status: ApprovalStatus
     decided_by: str = Field(min_length=1)
+    # When set, the approval covers exactly these arguments (a different target is refused).
+    arguments: dict[str, Any] | None = None
     decided_at: datetime = Field(default_factory=utcnow)
 
 

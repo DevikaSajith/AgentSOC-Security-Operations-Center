@@ -135,3 +135,30 @@ class AuditLogRecord(Base):
     details: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True,
                                                 default=utcnow)
+
+
+class ApprovalRecord(Base):
+    """A human approval request for ONE exact remediation proposal (action + target + arguments).
+    `proposal_hash` is computed when the request is created and re-checked before execution."""
+
+    __tablename__ = "approvals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    approval_id: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    incident_id: Mapped[str] = mapped_column(String(36), index=True)
+    agent_run_id: Mapped[str] = mapped_column(String(40))
+    action: Mapped[str] = mapped_column(String(60))
+    target: Mapped[str] = mapped_column(String(200))
+    arguments: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    risk: Mapped[str] = mapped_column(String(20))
+    evidence_ids: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    expected_effect: Mapped[str] = mapped_column(Text, default="")
+    proposal_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(20), index=True, default="pending")
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    decision: Mapped[str | None] = mapped_column(Text, nullable=True)  # reviewer comment / system reason
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

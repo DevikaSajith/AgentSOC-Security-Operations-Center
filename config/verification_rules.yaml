@@ -1,0 +1,33 @@
+# AgentSOC - Verification Agent rules (loaded by backend/app/agents/verification/config.py).
+#
+# For each remediation action: the state the target must be in AFTER the action. Field names are the
+# simulator's own (IAMUser.admin, IAMUser.access_key_active, EC2Instance.status, S3Bucket.public_access);
+# they are compared against the resource state read NOW through the read tool get_resource.
+# All fields must hold for "verified"; some for "partial"; none for "failed"; a missing field is "unknown".
+
+# Confidence is computed from the kind of result (an exact read-back is certain; a missing read is not).
+# It is never copied from Monitor / Triage / Investigator / Compliance / Remediation.
+confidence:
+  verified: 1.0
+  failed: 0.95
+  partial: 0.7
+  unknown: 0.2
+  execution_failed: 0.9
+
+verification:
+  remove_admin_privileges:
+    resource_type: IAMUser
+    description: "the IAM user no longer has admin privileges"
+    required_state: {admin: false}
+  disable_access_key:
+    resource_type: IAMUser
+    description: "none of the IAM user's access keys is active"
+    required_state: {access_key_active: false}
+  isolate_instance:
+    resource_type: EC2Instance
+    description: "the EC2 instance is isolated"
+    required_state: {status: isolated}
+  make_bucket_private:
+    resource_type: S3Bucket
+    description: "the S3 bucket does not allow public access"
+    required_state: {public_access: false}

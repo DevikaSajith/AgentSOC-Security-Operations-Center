@@ -95,22 +95,24 @@ def test_stored_incident_is_served(client: TestClient, database: Database) -> No
 
 
 # ----------------------------------------------------------- agents / tools / audit
-def test_only_monitor_and_triage_are_implemented(client: TestClient) -> None:
+def test_all_six_agents_are_implemented(client: TestClient) -> None:
     agents = client.get("/api/agents").json()
     assert [a["name"] for a in agents] == ["Monitor Agent", "Triage Agent",
                                            "Investigator Agent", "Compliance Agent",
-                                           "Remediation Agent"]
+                                           "Remediation Agent", "Verification Agent"]
     assert [a["agent_id"] for a in agents] == ["monitor", "triage", "investigator",
-                                               "compliance", "remediation"]
-    monitor, triage, others = agents[0], agents[1], agents[2:]
+                                               "compliance", "remediation", "verification"]
+    monitor, triage, investigator, compliance, remediation = agents[0], agents[1], agents[2], agents[3], agents[4]
     assert monitor["implemented"] is True and monitor["status"] == "idle"
     assert monitor["stats"]["runs"] == 0 and monitor["last_result"] is None
-    assert triage["implemented"] is True and triage["stats"]["runs"] == 0
-    assert triage["llm"]["configured"] is False  # tests run with LLM_PROVIDER=none
-    assert all(a["implemented"] is False and a["status"] == "not_implemented"
-               and a["tasks_processed"] == 0 and a["stats"] is None
-               and a["last_result"] is None for a in others)
-    remediation = agents[-1]
+    for agent in (triage, investigator, compliance, remediation):
+        assert agent["implemented"] is True and agent["stats"]["runs"] == 0
+        assert agent["llm"]["configured"] is False  # tests run with LLM_PROVIDER=none
+    assert remediation["stats"]["pending_approvals"] == 0 and remediation["stats"]["executed_actions"] == 0
+    verification = agents[5]
+    assert verification["implemented"] is True and verification["llm"] is None      # deterministic: no model
+    assert verification["stats"]["runs"] == 0 and verification["stats"]["method"] == "deterministic"
+    assert not set(verification["tools"]) & {"disable_access_key", "remove_admin_privileges", "isolate_instance", "make_bucket_private"}
     assert "isolate_instance" in remediation["tools"]
     assert "isolate_instance" not in agents[0]["tools"]
 
