@@ -1,0 +1,258 @@
+/* AgentSOC Full-Screen Initial Loading Screen */
+
+.agentsoc-loading-screen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(185, 38, 130, 0.12) 0%, rgba(20, 16, 32, 0.85) 45%, #08070d 100%),
+    #08070d;
+  color: #f5f4fa;
+  overflow: hidden;
+  user-select: none;
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.agentsoc-loading-screen.fade-out {
+  opacity: 0;
+  transform: scale(1.02);
+  pointer-events: none;
+}
+
+/* Subtle background cyber grid */
+.agentsoc-loading-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(236, 73, 171, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(236, 73, 171, 0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: center center;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.agentsoc-loading-container {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  max-width: 440px;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+/* Ambient glow orb behind waveform */
+.agentsoc-waveform-ambient {
+  position: absolute;
+  top: 40px;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(236, 73, 171, 0.25) 0%, rgba(147, 51, 234, 0.12) 50%, transparent 70%);
+  filter: blur(14px);
+  pointer-events: none;
+  animation: agentsoc-ambient-pulse 3s ease-in-out infinite;
+}
+
+/* Animated Equalizer / Waveform Icon */
+.agentsoc-waveform {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 64px;
+  padding: 0 10px;
+}
+
+.agentsoc-waveform-bar {
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f9a8d4 0%, #ec49ab 40%, #9333ea 100%);
+  box-shadow: 0 0 12px rgba(236, 73, 171, 0.45);
+  transform-origin: center;
+  animation: agentsoc-equalizer 1.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+/* Symmetrical waveform bar heights & staggered delays */
+.agentsoc-waveform-bar:nth-child(1) { height: 18px; animation-delay: 0.00s; }
+.agentsoc-waveform-bar:nth-child(2) { height: 30px; animation-delay: 0.15s; }
+.agentsoc-waveform-bar:nth-child(3) { height: 44px; animation-delay: 0.30s; }
+.agentsoc-waveform-bar:nth-child(4) { height: 58px; animation-delay: 0.45s; }
+.agentsoc-waveform-bar:nth-child(5) { height: 44px; animation-delay: 0.60s; }
+.agentsoc-waveform-bar:nth-child(6) { height: 30px; animation-delay: 0.75s; }
+.agentsoc-waveform-bar:nth-child(7) { height: 18px; animation-delay: 0.90s; }
+
+/* Equalizer keyframe scale animation */
+@keyframes agentsoc-equalizer {
+  0%, 100% {
+    transform: scaleY(0.32);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+    filter: drop-shadow(0 0 10px rgba(244, 114, 182, 0.75));
+  }
+}
+
+@keyframes agentsoc-ambient-pulse {
+  0%, 100% {
+    transform: scale(0.92);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.95;
+  }
+}
+
+/* Typography */
+.agentsoc-brand-title {
+  margin-top: 26px;
+  font-family: var(--app-font-display, 'Space Grotesk', sans-serif);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em; /* Centers accurately despite wide letter-spacing */
+  color: #f7f6fb;
+  text-transform: uppercase;
+  text-shadow: 0 0 18px rgba(236, 73, 171, 0.3);
+}
+
+.agentsoc-status-text {
+  margin-top: 10px;
+  font-family: var(--app-font-mono, 'DM Mono', monospace);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: #8c899c;
+  text-transform: uppercase;
+  animation: agentsoc-status-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes agentsoc-status-pulse {
+  0%, 100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+    color: #b7b4c6;
+  }
+}
+
+/* Error & Retry State */
+.agentsoc-error-container {
+  margin-top: 22px;
+  padding: 14px 16px;
+  border-radius: 6px;
+  background: rgba(22, 18, 30, 0.9);
+  border: 1px solid rgba(239, 93, 89, 0.32);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  animation: agentsoc-fade-in 0.25s ease-out;
+}
+
+.agentsoc-error-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #ff9b97;
+  font-family: var(--app-font-mono, 'DM Mono', monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agentsoc-error-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef5d59;
+  box-shadow: 0 0 8px rgba(239, 93, 89, 0.6);
+}
+
+.agentsoc-error-message {
+  font-family: var(--app-font-mono, 'DM Mono', monospace);
+  font-size: 11px;
+  color: #d1cfdd;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.agentsoc-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.agentsoc-btn-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 14px;
+  background: hsl(var(--primary, 322 93% 62%));
+  border: 1px solid hsl(var(--primary, 322 93% 62%));
+  border-radius: 4px;
+  color: #190d18;
+  font-family: var(--app-font-mono, 'DM Mono', monospace);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.agentsoc-btn-retry:hover {
+  background: #f267ba;
+  border-color: #f267ba;
+  transform: translateY(-1px);
+}
+
+.agentsoc-btn-demo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid #363245;
+  border-radius: 4px;
+  color: #aaa8b9;
+  font-family: var(--app-font-mono, 'DM Mono', monospace);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.agentsoc-btn-demo:hover {
+  border-color: #554e66;
+  color: #e3e2eb;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+@keyframes agentsoc-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

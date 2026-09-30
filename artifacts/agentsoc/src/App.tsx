@@ -22,6 +22,7 @@ import {
   getLearning, getLearningStats, getMlMetrics, getMlStatus, requestRetry, runFeedback, submitFeedback,
   demoData, loadDashboard, decideApproval, resetEnvironment, runCompliance, runInvestigation, runRemediation, runVerification, runMonitor, runScenario, runTriage
 } from '@/lib/api';
+import { LoadingScreen } from '@/components/LoadingScreen';
 
 const queryClient = new QueryClient();
 
@@ -746,14 +747,54 @@ const wait = (ms: number) => new Promise(resolve => window.setTimeout(resolve, m
 
 function App() {
   // Starts with the bundled demo data, then switches to the backend if it is reachable.
-  const [data, setData] = useState<DashboardData>(demoData); const [toast, setToast] = useState<{ title: string; message: string } | null>(null); const [refreshTick, setRefreshTick] = useState(1);
+  const [data, setData] = useState<DashboardData>(demoData);
+  const [toast, setToast] = useState<{ title: string; message: string } | null>(null);
+  const [refreshTick, setRefreshTick] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [fadingOut, setFadingOut] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
+  const [statusText, setStatusText] = useState('INITIALIZING SECURITY OPERATIONS...');
+
   const setIncidents = (update: (items: Incident[]) => Incident[]) => setData(current => ({ ...current, incidents: update(current.incidents) }));
   const setEvents = (update: (items: SecurityEvent[]) => SecurityEvent[]) => setData(current => ({ ...current, events: update(current.events) }));
   const setApprovals = (update: (items: Approval[]) => Approval[]) => setData(current => ({ ...current, approvals: update(current.approvals) }));
   const setAudit = (update: (items: AuditEntry[]) => AuditEntry[]) => setData(current => ({ ...current, audit: update(current.audit) }));
   const notify = useCallback((title: string, message: string) => { setToast({ title, message }); window.setTimeout(() => setToast(null), 4000); }, []);
   const reload = useCallback(async () => { const next = await loadDashboard(); setData(next); return next; }, []);
-  useEffect(() => { void reload(); }, [reload]);
+
+  const dismissLoading = useCallback(() => {
+    setFadingOut(true);
+    window.setTimeout(() => {
+      setLoading(false);
+    }, 500);
+  }, []);
+
+  const initialize = useCallback(async () => {
+    setInitError(null);
+    setStatusText('INITIALIZING SECURITY OPERATIONS...');
+    const start = Date.now();
+    try {
+      const next = await loadDashboard();
+      setData(next);
+      const elapsed = Date.now() - start;
+      const minDisplayMs = 1300;
+      if (elapsed < minDisplayMs) {
+        await wait(minDisplayMs - elapsed);
+      }
+      const forceDemo = import.meta.env.VITE_DEMO_MODE === 'true';
+      if (next.mode === 'live' || forceDemo) {
+        dismissLoading();
+      } else {
+        setInitError('Backend service offline at http://127.0.0.1:8000. Start the FastAPI backend or launch in demo mode.');
+      }
+    } catch {
+      setInitError('Failed to establish connection to security operations backend.');
+    }
+  }, [dismissLoading]);
+
+  useEffect(() => {
+    void initialize();
+  }, [initialize]);
   const onRefresh = async () => { const next = await reload(); setRefreshTick(value => value + 1); notify('Environment synced', next.mode === 'live' ? 'Events, cloud state and agents reloaded from the backend.' : 'Backend unreachable: showing demo telemetry and agent state.'); };
   const onReset = async () => { if (data.mode !== 'live') { notify('Environment reset', 'Demo mode: nothing to reset.'); return; } try { await resetEnvironment(); await reload(); notify('Environment reset', 'Simulated cloud restored. Event history is kept.'); } catch { notify('Reset failed', 'The backend could not reset the simulated cloud.'); } };
   const onAction = (id: string, action: string) => { setIncidents(items => items.map(item => item.id === id ? { ...item, currentAgent: 'Remediation Agent', status: 'Awaiting approval' } : item)); setAudit(items => [{ timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '), agent: 'Remediation Agent', action, decision: 'Escalated', result: 'Awaiting human approval', incidentId: id, input: 'Analyst-triggered action', reason: 'Manual action from incident detail', confidence: 96 }, ...items]); };
@@ -822,7 +863,7 @@ function App() {
     } catch { notify('Monitor Agent failed', 'The backend could not run the Monitor Agent.'); return null; }
   };
   const onSimulateDemo = (scenario: string) => { const title = scenario === 'iam' ? 'Simulated IAM privilege escalation' : scenario === 's3' ? 'Simulated public S3 exposure' : scenario === 'cred' ? 'Simulated credential misuse' : 'Simulated EC2 command & control'; const newIncident: Incident = { id: 'INC-005', title, severity: 'high', source: 'Attack Simulator', resource: scenario === 's3' ? 's3://sim-prod-exports' : scenario === 'ec2' ? 'i-0simulatedc2' : scenario === 'cred' ? 'arn:aws:iam::4821:user/alice' : 'arn:aws:iam::4821:user/sim-attacker', currentAgent: 'Triage Agent', status: 'Investigating', created: new Date().toISOString().slice(0, 19).replace('T', ' '), description: 'Generated from the AgentSOC attack simulator to validate autonomous detection and response.', confidence: 92, sourceIp: '198.51.100.42', user: 'sim-attacker' }; setIncidents(items => [newIncident, ...items.filter(item => item.id !== 'INC-005')]); setEvents(items => [{ id: 'EVT-SIM-005', timestamp: new Date().toISOString().slice(11, 23), type: 'SimulatedThreatSignal', user: 'sim-attacker', sourceIp: '198.51.100.42', resource: newIncident.resource, risk: 'high' }, ...items]); notify('Scenario completed', '18 events emitted and INC-005 created in the incident queue.'); };
-  return <AppCtx.Provider value={{ notify, reload: async () => { await reload(); } }}><QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Shell onRefresh={onRefresh} refreshTick={refreshTick} mode={data.mode} pendingApprovals={data.approvals.filter(a => a.status === 'Pending').length}><RouterContent data={data} onToast={notify} onAction={onAction} onDecision={onDecision} onSimulate={onSimulate} onRunMonitor={onRunMonitor} onRunTriage={onRunTriage} onRunInvestigation={onRunInvestigation} onRunCompliance={onRunCompliance} onRunRemediation={onRunRemediation} onDecideApproval={onDecideApproval} onRunVerification={onRunVerification} onReset={onReset} onRefresh={onRefresh} /></Shell><Toast toast={toast} onClose={() => setToast(null)} /></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider></AppCtx.Provider>;
+  return <AppCtx.Provider value={{ notify, reload: async () => { await reload(); } }}><QueryClientProvider client={queryClient}><TooltipProvider>{loading && <LoadingScreen isFadingOut={fadingOut} statusText={statusText} error={initError} onRetry={initialize} onContinueDemo={dismissLoading} />}<WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Shell onRefresh={onRefresh} refreshTick={refreshTick} mode={data.mode} pendingApprovals={data.approvals.filter(a => a.status === 'Pending').length}><RouterContent data={data} onToast={notify} onAction={onAction} onDecision={onDecision} onSimulate={onSimulate} onRunMonitor={onRunMonitor} onRunTriage={onRunTriage} onRunInvestigation={onRunInvestigation} onRunCompliance={onRunCompliance} onRunRemediation={onRunRemediation} onDecideApproval={onDecideApproval} onRunVerification={onRunVerification} onReset={onReset} onRefresh={onRefresh} /></Shell><Toast toast={toast} onClose={() => setToast(null)} /></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider></AppCtx.Provider>;
 }
 
 export default App;
