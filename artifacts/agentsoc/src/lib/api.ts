@@ -18,6 +18,7 @@ import {
   type ComplianceInfo,
   type RemediationInfo,
   type VerificationInfo,
+  type MLPredictionInfo,
 } from '@/data';
 
 /*
@@ -81,6 +82,7 @@ type ApiIncident = {
   evidence: { evidence_id: string; kind: string; description: string; event_id: string | null; data: Record<string, unknown> }[];
   agent_decisions: { actor: string; decision: string; reasoning: string; confidence: number; timestamp: string }[];
   compliance: ApiCompliance | null; remediation: ApiRemediation | null; verification: ApiVerification | null;
+  ml_prediction: ApiMlPrediction | null;
   triage: ApiTriage | null;
   investigation: ApiInvestigation | null;
 };
@@ -146,6 +148,13 @@ type ApiRemediation = {
   before_state: Record<string, unknown> | null; after_state: Record<string, unknown> | null;
   evidence: { evidence_id: string; type: string; source: string; observed: boolean; description: string }[];
   recommendations: string[]; unknowns: string[];
+};
+
+type ApiMlPrediction = {
+  prediction: string; threat_probability: number; prediction_probability: number; risk_level: string; is_threat: boolean;
+  model_version: string; model_type: string; feature_version: string; data_source: string; note: string;
+  important_features: { name: string; value: number; importance: number; description: string }[];
+  class_probabilities: Record<string, number>;
 };
 
 type ApiVerification = {
@@ -295,6 +304,7 @@ function toIncident(incident: ApiIncident): Incident {
       compliance: incident.compliance ? toCompliance(incident.compliance) : null,
       remediation: incident.remediation ? toRemediation(incident.remediation) : null,
       verification: incident.verification ? toVerification(incident.verification) : null,
+      ml: incident.ml_prediction ? toMlPrediction(incident.ml_prediction) : null,
     },
   };
 }
@@ -306,6 +316,15 @@ function toApproval(a: ApiApproval): Approval {
     id: a.approval_id, action: titleCase(a.action), resource: a.target, reason: a.reason, requestedBy: 'Remediation Agent',
     risk: toSeverity(a.risk as ApiSeverity), incidentId: a.incident_id, status: titleCase(a.status) as Approval['status'],
     evidenceIds: a.evidence_ids, expiresAt: formatTime(a.expires_at), reviewedBy: a.reviewed_by, decision: a.decision,
+  };
+}
+
+function toMlPrediction(m: ApiMlPrediction): MLPredictionInfo {
+  return {
+    prediction: m.prediction, threatProbability: m.threat_probability, predictionProbability: m.prediction_probability,
+    riskLevel: m.risk_level, isThreat: m.is_threat, modelVersion: m.model_version, modelType: m.model_type,
+    featureVersion: m.feature_version, dataSource: m.data_source, note: m.note, features: m.important_features,
+    classProbabilities: m.class_probabilities,
   };
 }
 
@@ -693,6 +712,102 @@ export async function runRemediation(incidentId: string): Promise<RemediationRun
     errors: report.validation_errors, hasApproval: report.approval !== null,
   };
 }
+
+/* ------------------------------------------------------ Feedback & Learning (Phase 8) + ML (Phase 9) */
+
+type ApiLearning = {
+  learning_id: string; incident_id: string; timestamp: string; incident_category: string; attack_type: string;
+  initial_severity: string; final_severity: string; initial_priority: string | null; final_priority: string | null;
+  agent_run_ids: Record<string, string>; remediation_action: string | null; remediation_target: string | null;
+  verification_run_id: string | null; verification_status: string | null; verification_result: Record<string, unknown>;
+  auto_feedback_type: string; feedback_type: string; failure_reason: string | null; recommendation: string;
+  human_feedback: string | null; human_comment: string | null; successful: boolean; retry_count: number;
+  retry_limit: number | null; previous_run_id: string | null; retry_reason: string | null; retry_run_id: string | null;
+  providers: Record<string, string>; ml_prediction: string | null;
+};
+
+/** A structured learning record about one incident's response (no prompts, raw output or secrets). */
+export type LearningRecordInfo = {
+  id: string; incidentId: string; timestamp: string; category: string; attackType: string;
+  initialSeverity: string; finalSeverity: string; initialPriority: string | null; finalPriority: string | null;
+  runIds: Record<string, string>; action: string | null; target: string | null; verificationStatus: string | null;
+  verificationResult: Record<string, unknown>; autoFeedback: string; feedback: string; failureReason: string | null;
+  recommendation: string; humanFeedback: string | null; humanComment: string | null; successful: boolean;
+  retryCount: number; retryLimit: number | null; previousRunId: string | null; retryReason: string | null;
+  retryRunId: string | null; providers: Record<string, string>; mlPrediction: string | null;
+};
+
+const toLearning = (r: ApiLearning): LearningRecordInfo => ({
+  id: r.learning_id, incidentId: r.incident_id, timestamp: formatTime(r.timestamp), category: r.incident_category,
+  attackType: r.attack_type, initialSeverity: r.initial_severity, finalSeverity: r.final_severity,
+  initialPriority: r.initial_priority, finalPriority: r.final_priority, runIds: r.agent_run_ids, action: r.remediation_action,
+  target: r.remediation_target, verificationStatus: r.verification_status, verificationResult: r.verification_result,
+  autoFeedback: r.auto_feedback_type, feedback: r.feedback_type, failureReason: r.failure_reason, recommendation: r.recommendation,
+  humanFeedback: r.human_feedback, humanComment: r.human_comment, successful: r.successful, retryCount: r.retry_count,
+  retryLimit: r.retry_limit, previousRunId: r.previous_run_id, retryReason: r.retry_reason, retryRunId: r.retry_run_id,
+  providers: r.providers, mlPrediction: r.ml_prediction,
+});
+
+export async function getLearning(incidentId: string): Promise<LearningRecordInfo[]> {
+  return (await request<ApiLearning[]>(`/learning?incident_id=${encodeURIComponent(incidentId)}&limit=200`)).map(toLearning);
+}
+
+export type LearningStats = {
+  service: { name: string; kind: string; llm: boolean; retry_limit: number | null };
+  learning: { total_learning_records: number; successful_responses: number; failed_responses: number; partial_responses: number;
+    insufficient_evidence: number; regressions: number; retry_requests: number; human_corrections: number; human_feedback_given: number;
+    by_failure_reason: Record<string, number>; by_remediation_action: Record<string, number> };
+  performance: { agents: Record<string, { total_runs: number; successful_runs: number; failed_runs: number; partial_runs: number;
+    skipped_runs: number; average_execution_time_seconds: number | null }>; verification_success_rate: number | null;
+    verification_runs_with_a_verdict: number };
+};
+
+export async function getLearningStats(): Promise<LearningStats | null> {
+  try { return await request<LearningStats>('/learning/stats'); } catch { return null; }
+}
+
+async function postJson(path: string, body: unknown, timeoutMs = 120_000): Promise<{ ok: boolean; status: number; body: any }> {
+  const controller = new AbortController(); const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${API_URL}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
+    return { ok: response.ok, status: response.status, body: await response.json().catch(() => null) };
+  } catch { return { ok: false, status: 0, body: null }; } finally { window.clearTimeout(timer); }
+}
+
+const errorText = (r: { status: number; body: any }) => { const d = r.body?.detail; return typeof d === 'string' ? d : (d?.detail ?? (r.status === 0 ? 'The backend did not answer.' : `Request failed (${r.status}).`)); };
+
+/** Runs the deterministic Feedback & Learning service for one incident (records the outcome; recommends only). */
+export async function runFeedback(incidentId: string): Promise<{ ok: boolean; status: string; outcome: string; regression: boolean; records: LearningRecordInfo[]; message: string }> {
+  const r = await postJson('/agents/feedback/run', { incident_id: incidentId });
+  if (!r.ok) return { ok: false, status: 'failed', outcome: 'request_failed', regression: false, records: [], message: errorText(r) };
+  return { ok: true, status: r.body.status, outcome: r.body.outcome, regression: r.body.regression_detected, records: (r.body.learning as ApiLearning[]).map(toLearning), message: (r.body.validation_errors as string[])[0] ?? '' };
+}
+
+export async function submitFeedback(learningId: string, feedback: 'correct' | 'incorrect' | 'partially_correct' | 'needs_review', comment?: string): Promise<{ ok: boolean; message: string }> {
+  const r = await postJson('/learning/feedback', { learning_id: learningId, feedback, ...(comment ? { comment } : {}) });
+  return { ok: r.ok, message: r.ok ? 'Feedback recorded.' : errorText(r) };
+}
+
+/** A human asks for a retry: the backend records it and starts the EXISTING remediation planning (a proposal + pending approval). */
+export async function requestRetry(incidentId: string, reason?: string): Promise<{ ok: boolean; code: string | null; message: string; retryCount: number | null; retryLimit: number | null; remediationOutcome: string | null; approvalId: string | null }> {
+  const r = await postJson(`/incidents/${encodeURIComponent(incidentId)}/retry`, reason ? { reason } : {}, 480_000);
+  if (!r.ok) return { ok: false, code: r.body?.detail?.code ?? null, message: errorText(r), retryCount: null, retryLimit: null, remediationOutcome: null, approvalId: null };
+  return { ok: true, code: null, message: r.body.note, retryCount: r.body.retry.retry_count, retryLimit: r.body.retry.retry_limit, remediationOutcome: r.body.remediation?.outcome ?? null, approvalId: r.body.remediation?.approval_id ?? null };
+}
+
+export type MlStatus = {
+  engine: string; kind: string; autonomous_agent: boolean; available: boolean; active_version: string | null; versions: number;
+  error: string | null; feature_version?: string; training_timestamp?: string; dataset_size?: { total: number; train: number; test: number };
+  data_source?: string; risk_thresholds?: { medium: number; high: number }; note?: string; classes?: string[];
+};
+export type MlMetrics = {
+  model_version: string; active: boolean; data_source: string; evaluation_scope: string; limitations: string[];
+  dataset_size: { total: number; train: number; test: number };
+  metrics: { accuracy: number; macro: { precision: number; recall: number; f1: number }; test_samples: number;
+    threat_detection: { true_positives: number; true_negatives: number; false_positives: number; false_negatives: number; precision: number; recall: number; f1: number } };
+};
+export async function getMlStatus(): Promise<MlStatus | null> { try { return await request<MlStatus>('/ml/status'); } catch { return null; } }
+export async function getMlMetrics(): Promise<MlMetrics | null> { try { return await request<MlMetrics>('/ml/metrics'); } catch { return null; } }
 
 /** What one Verification Agent run did. Verification is read-only: it never executes, approves or retries anything. */
 export type VerificationRunSummary = {

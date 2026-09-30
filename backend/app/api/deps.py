@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.agents.compliance.agent import ComplianceAgent
 from app.agents.investigator.agent import InvestigatorAgent
+from app.agents.feedback.engine import FeedbackEngine
 from app.agents.monitor.agent import MonitorAgent
 from app.agents.remediation.agent import RemediationAgent
 from app.agents.remediation.execution import RemediationExecutor
@@ -83,7 +84,8 @@ def get_monitor_agent(request: Request) -> MonitorAgent:
     if config is None:
         raise HTTPException(503, "Monitor Agent unavailable: monitor_rules.yaml missing or invalid")
     return MonitorAgent(ready_database(request), config, get_tool_executor(request),
-                        audit_sink=lambda entry: record_audit(request, entry))
+                        audit_sink=lambda entry: record_audit(request, entry),
+                        predictor=getattr(request.app.state, "predictor", None))
 
 
 def get_triage_agent(request: Request) -> TriageAgent:
@@ -144,6 +146,16 @@ def get_verification_agent(request: Request) -> VerificationAgent:
         raise HTTPException(503, "Verification Agent unavailable: verification_rules.yaml missing or invalid")
     return VerificationAgent(ready_database(request), rules, get_tool_executor(request),
                              audit_sink=lambda entry: record_audit(request, entry))
+
+
+def get_feedback_engine(request: Request) -> FeedbackEngine:
+    """The deterministic Feedback & Learning service (no LLM, no action tools, cannot execute or approve)."""
+    rules, vrules = request.app.state.feedback_rules, request.app.state.verification_rules
+    if rules is None or vrules is None:
+        raise HTTPException(503, "Feedback service unavailable: feedback_rules.yaml / verification_rules.yaml "
+                                 "missing or invalid")
+    return FeedbackEngine(ready_database(request), rules, vrules, get_tool_executor(request),
+                          audit_sink=lambda entry: record_audit(request, entry))
 
 
 def get_tool_executor(request: Request) -> ToolExecutor:

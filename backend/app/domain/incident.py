@@ -25,6 +25,7 @@ from app.domain.enums import (
 )
 from app.domain.events import DEFAULT_REGION, SIMULATED_ACCOUNT_ID, utcnow
 from app.domain.compliance import ComplianceAssessment
+from app.domain.ml import MLPrediction
 from app.domain.remediation import RemediationAssessment
 from app.domain.verification import VerificationAssessment
 from app.domain.investigation import InvestigationAssessment
@@ -152,6 +153,9 @@ class IncidentState(BaseModel):
     priority: Priority | None = None
     category: IncidentCategory = IncidentCategory.OTHER
     confidence: Confidence = Field(default=0.0, ge=0.0, le=1.0)
+
+    # --- ML threat prediction (decision support from the Monitor stage; NOT the incident confidence)
+    ml_prediction: MLPrediction | None = None
 
     # --- triage (latest valid assessment; severity/priority/category/confidence above
     #     are updated from it, and triage.previous keeps the Monitor's initial values)

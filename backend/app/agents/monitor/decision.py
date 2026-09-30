@@ -14,7 +14,9 @@ from app.domain.enums import IncidentCategory
 
 # Group-level indicators that do not count as independent evidence for the
 # "correlated group" rule (the group's size is what that rule already measures).
-_NOT_INDEPENDENT = {"correlated_group"}
+# ml_threat_predicted is a supporting signal only: it can raise confidence but never counts as independent
+# evidence and never triggers incident creation by itself.
+_NOT_INDEPENDENT = {"correlated_group", "ml_threat_predicted"}
 
 
 def primary_event(group: EventGroup) -> EnrichedEvent:

@@ -1,0 +1,39 @@
+# AgentSOC - ML threat prediction (Phase 9). Random Forest decision SUPPORT; it never creates incidents,
+# executes actions or approves anything. Every threshold lives here.
+
+model:
+  feature_version: f1
+  benign_label: BENIGN
+  labels:
+    - BENIGN
+    - IAM_PRIVILEGE_ESCALATION
+    - CREDENTIAL_MISUSE
+    - SUSPICIOUS_NETWORK_ACTIVITY
+    - S3_UNAUTHORIZED_ACCESS
+    - EC2_COMPROMISE
+  n_estimators: 150
+  max_depth: null
+  min_samples_leaf: 2
+  random_state: 42
+
+# Training data is GENERATED from the project's simulator (labels = the scenario that generated the events,
+# never LLM text). It is synthetic: metrics measure how well the model separates simulator scenarios, not
+# real-world detection performance.
+dataset:
+  samples_per_class: 300
+  test_fraction: 0.2        # the LAST 20% in time is the test set (chronological split, no shuffling)
+  seed: 42
+  noise: true               # benign look-alikes, truncated attacks and interleaved routine events
+
+risk:
+  medium: 0.40              # threat probability >= this -> medium
+  high: 0.75                # threat probability >= this -> high
+
+monitor:
+  signal_probability: 0.50  # the Monitor gets the "ml_threat_predicted" signal when P(threat) >= this
+
+explain:
+  top_features: 5
+
+storage:
+  model_dir: ml_models      # relative to backend/ ; each version has model.joblib + metadata.json

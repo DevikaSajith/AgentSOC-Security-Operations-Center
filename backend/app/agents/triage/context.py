@@ -31,6 +31,7 @@ class TriageContext(BaseModel):
     payload: dict[str, Any]
     facts: dict[str, ObservedFact]  # ref -> the system-generated fact it stands for
     input_event_ids: list[str]
+    ml_probability: float | None = None  # the ML threat probability shown to the model (for the copy guard)
 
     def to_json(self) -> str:
         return json.dumps(self.payload, indent=1, ensure_ascii=False, sort_keys=False)
@@ -115,6 +116,19 @@ class ContextBuilder:
             monitor_items.append({"ref": ref, "decision": decision.decision,
                                   "reasoning": decision.reasoning})
 
+        ml = incident.ml_prediction
+        ml_block = None
+        if ml is not None:
+            facts["ML1"] = ObservedFact(
+                ref="ML1", kind="ml_prediction",
+                fact=f"ML prediction (decision support, NOT observed evidence): {ml.prediction}, threat probability "
+                     f"{ml.threat_probability:.2f}, model {ml.model_version}")
+            ml_block = {"ref": "ML1", "prediction": ml.prediction, "threat_probability": round(ml.threat_probability, 2),
+                        "risk_level": ml.risk_level, "model": f"Random Forest {ml.model_version}",
+                        "top_signals": [f.description for f in ml.important_features[:4]],
+                        "note": "A statistical estimate from simulator-generated training data. It is decision support, NOT a "
+                                "confirmed attack and NOT your confidence: assess the evidence independently and never reuse "
+                                "its probability as your confidence."}
         payload = sanitize({
             "incident": {
                 "incident_id": incident.incident_id, "title": incident.title,
@@ -137,12 +151,14 @@ class ContextBuilder:
             "principal": principal_item,
             "resources": resource_items,
             "monitor_findings": monitor_items,
+            "ml_prediction": ml_block,
             "environment": {"cloud": "simulated AWS account (no real AWS)",
                             "evidence_refs_you_may_cite": sorted(facts)},
         }, cap)
         payload = self._fit(payload)
         cited = set(payload["environment"]["evidence_refs_you_may_cite"])
         return TriageContext(payload=payload, facts={r: f for r, f in facts.items() if r in cited},
+                             ml_probability=round(ml.threat_probability, 2) if ml is not None else None,
                              input_event_ids=[f.event_id for r, f in facts.items()
                                               if f.event_id and r in cited])
 

@@ -162,3 +162,26 @@ class ApprovalRecord(Base):
     reviewed_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     decision: Mapped[str | None] = mapped_column(Text, nullable=True)  # reviewer comment / system reason
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LearningRecordRow(Base):
+    """Feedback & Learning record (see app.domain.learning). Query columns are copies of payload fields;
+    `payload` holds the full validated LearningRecord. No prompts, raw model output or secrets."""
+
+    __tablename__ = "learning_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    learning_id: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    incident_id: Mapped[str] = mapped_column(String(36), index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, default=utcnow)
+    incident_category: Mapped[str] = mapped_column(String(30), index=True)
+    attack_type: Mapped[str] = mapped_column(String(255), index=True)
+    remediation_action: Mapped[str | None] = mapped_column(String(60), index=True, nullable=True)
+    verification_status: Mapped[str | None] = mapped_column(String(20), index=True, nullable=True)
+    verification_run_id: Mapped[str | None] = mapped_column(String(40), index=True, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(40), index=True, nullable=True)
+    feedback_type: Mapped[str] = mapped_column(String(40), index=True)
+    human_feedback: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    successful: Mapped[bool] = mapped_column(default=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+

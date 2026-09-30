@@ -1,6 +1,14 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
 export type IncidentStatus = 'New' | 'Triaged' | 'Investigated' | 'Compliance assessed' | 'Remediation pending' | 'Remediation approved' | 'Remediation rejected' | 'Remediation failed' | 'Remediated' | 'Verified' | 'Verification failed' | 'Partial remediation' | 'Verification unknown' | 'Investigating' | 'Awaiting approval' | 'Contained' | 'Resolved';
 
+/** ML threat prediction attached by the Monitor stage. DECISION SUPPORT: not a confirmed attack, not the incident confidence. */
+export type MLPredictionInfo = {
+  prediction: string; threatProbability: number; predictionProbability: number; riskLevel: string; isThreat: boolean;
+  modelVersion: string; modelType: string; featureVersion: string; dataSource: string; note: string;
+  features: { name: string; value: number; importance: number; description: string }[];
+  classProbabilities: Record<string, number>;
+};
+
 /** The latest Verification Agent result: BEFORE / EXPECTED / ACTUAL read back from the cloud (deterministic, read-only). */
 export type VerificationInfo = {
   runId: string; status: string; method: string; action: string; target: string | null; expectedEffect: string;
@@ -84,6 +92,7 @@ export type IncidentDetail = {
   compliance: ComplianceInfo | null;
   remediation: RemediationInfo | null;
   verification: VerificationInfo | null;
+  ml: MLPredictionInfo | null;
 };
 export type Incident = {
   id: string; title: string; severity: Severity; source: string; resource: string;

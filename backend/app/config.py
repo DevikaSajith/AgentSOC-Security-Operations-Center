@@ -50,6 +50,8 @@ class Settings:
     # Global kill switch: while false NO agent may execute an action tool, whatever was proposed
     # or approved. Off by default; set AGENT_ACTIONS_ENABLED=true to allow approved actions.
     agent_actions_enabled: bool = False
+    # Directory of trained ML models (empty = the default from config/ml_config.yaml).
+    ml_model_dir: str = ""
 
     @property
     def database_backend(self) -> str:
@@ -89,6 +91,7 @@ def get_settings() -> Settings:
         ollama_base_url=os.getenv("OLLAMA_BASE_URL", "").strip() or "http://localhost:11434",
         llm_timeout_seconds=_int("LLM_TIMEOUT_SECONDS", 180),
         ollama_num_ctx=_int("OLLAMA_NUM_CTX", 8192),
+        ml_model_dir=os.getenv("ML_MODEL_DIR", "").strip(),
         agent_actions_enabled=os.getenv("AGENT_ACTIONS_ENABLED", "").strip().lower() in ("1", "true", "yes", "on"),
     )
 

@@ -25,6 +25,9 @@ RULES
   probability that an attacker definitely did something. Judge it from how complete and
   consistent the evidence is.
 - Give 1-5 risk_indicators; each must cite the refs it is based on.
+- If the context has an ml_prediction, it is decision support from a statistical model (cite it as ML1 at
+  most as context): it is not observed evidence and not confirmed. Never copy its probability as your
+  confidence; base your confidence on the evidence.
 - Monitor severity/priority/category are only initial signals. You may change them; the
   rationale fields must explain why (or why you kept them).
 - Consider together: privilege level, affected resources and their sensitivity, untrusted

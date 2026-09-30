@@ -144,7 +144,8 @@ class TriageAgent(BaseAgent[TriageRunRequest, TriageRunReport]):
             return
         if run.request.allow_rule_based_fallback:
             run.decision = rule_based_decision(run.incident, run.context, self._config)
-            validate_decision(run.decision.model_dump_json(), set(run.context.facts), self._config)
+            validate_decision(run.decision.model_dump_json(), set(run.context.facts), self._config,
+                              run.context.ml_probability)
             run.method, run.outcome = TriageMethod.RULE_BASED_FALLBACK, "triaged_rule_based_fallback"
             return
         run.outcome = llm_failure
@@ -154,9 +155,10 @@ class TriageAgent(BaseAgent[TriageRunRequest, TriageRunReport]):
         assert run.context is not None
         context_json = run.context.to_json()
         allowed = set(run.context.facts)
+        ml_probability = run.context.ml_probability
         result = ask_structured(
             self._provider, SYSTEM_PROMPT, build_user_prompt(context_json), DECISION_SCHEMA,
-            validate=lambda text: validate_decision(text, allowed, self._config),
+            validate=lambda text: validate_decision(text, allowed, self._config, ml_probability),
             repair=lambda previous, problems: build_repair_prompt(context_json, previous, problems),
             max_repairs=self._config.policy.max_repair_attempts)
         run.attempts += result.attempts

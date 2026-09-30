@@ -102,6 +102,7 @@ confidence:
     principal_ip_change: 0.3
     privileged_principal: 0.2
     correlated_group: 0.2
+    ml_threat_predicted: 0.15   # ML supporting signal (never creates an incident on its own)
   max_confidence: 0.99
 
 priority_by_severity:

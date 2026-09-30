@@ -242,6 +242,42 @@ never executes, approves or retries anything, so it is safe to run repeatedly. A
 the incident open (`verification_failed`) with a `reassess_remediation` recommendation; retrying is a
 human decision. `verified` does not auto-close the incident.
 
+#### Feedback & Learning (Phase 8, deterministic backend service - not an LLM agent)
+
+`POST /api/agents/feedback/run {"incident_id": "INC-..."}` turns the verification outcome into a structured
+**learning record** (`successful_response` / `failed_response` / `partial_response` / `insufficient_evidence`),
+classifies a failure with deterministic rules (`wrong_target`, `wrong_action`, `execution_failure`,
+`expected_state_not_reached`, `insufficient_evidence`, `state_regression`, `unknown`), recommends recovery
+(`config/feedback_rules.yaml`) and checks a **verified** remediation for **regression** (recorded, never
+auto-remediated). It only recommends. `POST /api/learning/feedback` stores an analyst verdict
+(`correct` / `incorrect` / `partially_correct` / `needs_review`) that overrides the inferred type.
+`POST /api/incidents/{id}/retry` records a human's retry request (count, limit, previous run) and starts the
+EXISTING remediation planning: a new proposal and a pending approval, nothing executed. Queries:
+`GET /api/learning` (filter by category, attack type, action, verification status, failure reason),
+`GET /api/learning/{id}`, `GET /api/learning/stats` (counts + agent performance from `agent_runs`).
+Records never contain prompts, raw model output, reasoning, credentials or secrets.
+
+#### ML Threat Predictor (Phase 9, Random Forest decision support - not an agent)
+
+A scikit-learn Random Forest classifies event groups (`BENIGN`, `IAM_PRIVILEGE_ESCALATION`,
+`CREDENTIAL_MISUSE`, `SUSPICIOUS_NETWORK_ACTIVITY`, `S3_UNAUTHORIZED_ACCESS`, `EC2_COMPROMISE`) from
+deterministic features (`backend/app/ml/features.py`). Training data is **generated from the simulator** (labels =
+the generating scenario, never LLM text), split chronologically, so the reported metrics describe
+simulator-scenario separation, **not real-world accuracy**. The Monitor receives the prediction as one extra
+supporting signal (`ml_threat_predicted`): the ML model alone can never create an incident. Triage gets it as
+context (`ML1`) and may not copy its probability as its own confidence. Training is explicit:
+
+```bash
+cd backend
+python -m app.ml.train --activate          # trains rf-vN from simulator data (about 2 seconds) and activates it
+```
+
+`GET /api/ml/status`, `GET /api/ml/models`, `GET /api/ml/metrics`, `POST /api/ml/predict`,
+`POST /api/ml/train` (does not activate unless asked; `include_learning_records` adds analyst-confirmed
+Phase 8 records to the training set), `POST /api/ml/activate`. Settings live in `config/ml_config.yaml`;
+models are stored in `backend/ml_models/` (override with `ML_MODEL_DIR`). Without an active model everything
+else works and predictions report `model_unavailable`.
+
 ---
 
 ### 4. Build for Production

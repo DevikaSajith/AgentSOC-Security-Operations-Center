@@ -18,6 +18,11 @@ from app import __version__
 from app.agents.monitor.config import MonitorConfigError, load_monitor_config
 from app.agents.compliance.config import ComplianceConfigError, load_compliance_settings
 from app.agents.investigator.config import InvestigatorConfigError, load_investigator_config
+from app.api.ml_routes import router as ml_router
+from app.ml.config import MLConfigError, load_ml_config
+from app.ml.predictor import ThreatPredictor
+from app.ml.store import ModelStore
+from app.agents.feedback.config import FeedbackConfigError, load_feedback_rules
 from app.agents.verification.config import VerificationConfigError, load_verification_rules
 from app.agents.remediation.config import RemediationConfigError, load_remediation_settings
 from app.agents.triage.config import TriageConfigError, load_triage_config
@@ -108,6 +113,19 @@ def create_app(cloud: CloudSimulator | None = None, database: Database | None = 
     except VerificationConfigError as exc:
         logger.error("%s", exc)
         app.state.verification_rules = None
+    try:
+        app.state.feedback_rules = load_feedback_rules(settings.config_dir)
+    except FeedbackConfigError as exc:
+        logger.error("%s", exc)
+        app.state.feedback_rules = None
+    try:
+        app.state.ml_config = load_ml_config(settings.config_dir)
+        from pathlib import Path
+        app.state.ml_store = ModelStore(Path(settings.ml_model_dir) if settings.ml_model_dir else app.state.ml_config.model_dir())
+        app.state.predictor = ThreatPredictor(app.state.ml_store, app.state.ml_config)
+    except MLConfigError as exc:  # ML is optional decision support; the rest of the API is unaffected
+        logger.error("%s", exc)
+        app.state.ml_config = app.state.ml_store = app.state.predictor = None
     app.state.llm_error = None
     if llm_provider is _FROM_SETTINGS:
         try:
@@ -130,6 +148,7 @@ def create_app(cloud: CloudSimulator | None = None, database: Database | None = 
         return {"status": "healthy"}
 
     app.include_router(router)
+    app.include_router(ml_router)
 
     @app.exception_handler(ResourceNotFoundError)
     async def _not_found(_: Request, exc: ResourceNotFoundError) -> JSONResponse:

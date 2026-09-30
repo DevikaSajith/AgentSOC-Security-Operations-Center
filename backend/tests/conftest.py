@@ -10,6 +10,10 @@ import os
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 # Tests never talk to a real LLM: providers are injected (MockLLMProvider) where needed.
 os.environ["LLM_PROVIDER"] = "none"
+# Tests never use the developer's trained ML model (it would change Monitor confidence): point at an empty dir.
+import tempfile  # noqa: E402
+
+os.environ["ML_MODEL_DIR"] = tempfile.mkdtemp(prefix="agentsoc-no-ml-")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

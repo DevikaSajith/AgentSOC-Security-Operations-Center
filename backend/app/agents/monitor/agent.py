@@ -69,6 +69,7 @@ class _RunState:
     groups: list[tuple[EventGroup, IncidentDecision]] = field(default_factory=list)
     touched: dict[str, _Touched] = field(default_factory=dict)  # group_id -> incident
     reports: list[GroupReport] = field(default_factory=list)
+    ml: dict[str, Any] = field(default_factory=dict)  # group_id -> MLPrediction
     rejected_stored: list[SecurityEvent] = field(default_factory=list)  # ledgered as 'rejected'
 
 
@@ -76,7 +77,9 @@ class MonitorAgent(BaseAgent[MonitorRunRequest, MonitorRunReport]):
     name = AgentName.MONITOR
 
     def __init__(self, database: Database, config: MonitorConfig, tools: ToolExecutor | None,
-                 audit_sink: AuditSink, clock: Callable[[], datetime] = utcnow) -> None:
+                 audit_sink: AuditSink, clock: Callable[[], datetime] = utcnow,
+                 predictor: Any = None) -> None:
+        self._predictor = predictor  # optional ML ThreatPredictor: read-only decision support
         self._db = database
         self._config = config
         self._tools = tools
@@ -153,7 +156,23 @@ class MonitorAgent(BaseAgent[MonitorRunRequest, MonitorRunReport]):
         enricher = Enricher(self._config, self._lookup_resource if self._tools else None)
         for items in correlate(state.dedup.unique, self._config.correlation.window_seconds):
             group = enricher.build_group(items)
+            self._add_ml_signal(state, group)
             state.groups.append((group, decide(group, self._config)))
+
+    def _add_ml_signal(self, state: _RunState, group: EventGroup) -> None:
+        """Ask the ML predictor (if there is one) about this group. A failing or missing model never breaks the
+        Monitor. A threat prediction only adds the supporting `ml_threat_predicted` indicator: the rules and
+        correlation still decide whether an incident is created."""
+        if self._predictor is None:
+            return
+        try:
+            prediction = self._predictor.predict_group(group)
+        except Exception as exc:  # noqa: BLE001 - ML is optional decision support
+            logger.warning("ML prediction unavailable for %s: %s", group.group_id, type(exc).__name__)
+            return
+        state.ml[group.group_id] = prediction
+        if prediction.is_threat and "ml_threat_predicted" not in group.group_indicators:
+            group.group_indicators.append("ml_threat_predicted")
 
     def _lookup_resource(self, resource_type: str, resource_id: str) -> dict[str, Any] | None:
         assert self._tools is not None
@@ -178,6 +197,9 @@ class MonitorAgent(BaseAgent[MonitorRunRequest, MonitorRunReport]):
                     created = match is None
                     incident = (build_incident(group, decision, state.now) if created
                                 else merge_into(match, group, decision, self._config, state.now))
+                    ml = state.ml.get(group.group_id)
+                    if ml is not None:
+                        incident = incident.model_copy(update={"ml_prediction": ml})
                     entry = AuditEntry(
                         timestamp=state.now, incident_id=incident.incident_id, actor=self.name,
                         action="monitor.create_incident" if created else "monitor.update_incident",
@@ -187,7 +209,9 @@ class MonitorAgent(BaseAgent[MonitorRunRequest, MonitorRunReport]):
                         details={"run_id": state.run_id, "group_id": group.group_id,
                                  "event_ids": group.event_ids, "rules_matched": decision.rules_matched,
                                  "severity": decision.severity.value,
-                                 "category": decision.category.value})
+                                 "category": decision.category.value,
+                                 **({"ml_prediction": {"prediction": ml.prediction, "threat_probability": ml.threat_probability,
+                                                       "model_version": ml.model_version}} if ml else {})})
                     incident = service.save(incident.model_copy(
                         update={"audit_log": incident.audit_log + [entry]}))
                 self._audit(entry)
@@ -199,7 +223,7 @@ class MonitorAgent(BaseAgent[MonitorRunRequest, MonitorRunReport]):
                 source_ips=sorted({e.event.source_ip for e in group.events}),
                 indicators=decision.indicators, decision=outcome,
                 rules_matched=decision.rules_matched, incident_id=incident_id,
-                confidence=decision.confidence))
+                confidence=decision.confidence, ml_prediction=state.ml.get(group.group_id)))
 
     # ------------------------------------------------------ stage 9: results
     @staticmethod

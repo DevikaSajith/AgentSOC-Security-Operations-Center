@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.domain.agent_result import AgentResult
 from app.domain.enums import IncidentCategory, Priority, Severity
 from app.domain.events import SecurityEvent
+from app.domain.ml import MLPrediction
 
 IngestFormat = Literal["security_event", "cloudtrail", "vpc_flow_log", "guardduty",
                        "security_hub"]
@@ -100,6 +101,7 @@ class GroupReport(BaseModel):
     rules_matched: list[str]
     incident_id: str | None = None
     confidence: float
+    ml_prediction: MLPrediction | None = None  # decision support attached to this group (not confidence)
 
 
 # ------------------------------------------------------------------------ API

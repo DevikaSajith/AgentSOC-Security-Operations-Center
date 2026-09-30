@@ -69,8 +69,19 @@ def check_policy(decision: TriageDecision, config: TriageConfig) -> None:
         raise TriageValidationError("policy_violation", problems)
 
 
-def validate_decision(text: str, allowed_refs: set[str], config: TriageConfig) -> TriageDecision:
+def check_ml_copy(decision: TriageDecision, ml_probability: float | None) -> None:
+    """The ML probability is decision support; a model that just echoes it as its own confidence is not
+    assessing anything (the same failure was seen with the Monitor's confidence)."""
+    if ml_probability is not None and round(decision.confidence, 2) == ml_probability:
+        raise TriageValidationError("policy_violation", [
+            f"confidence {decision.confidence} equals the ML threat probability; give your own confidence in this "
+            "assessment based on how complete and consistent the evidence is"])
+
+
+def validate_decision(text: str, allowed_refs: set[str], config: TriageConfig,
+                      ml_probability: float | None = None) -> TriageDecision:
     decision = parse_decision(text)
     check_semantics(decision, allowed_refs)
     check_policy(decision, config)
+    check_ml_copy(decision, ml_probability)
     return decision

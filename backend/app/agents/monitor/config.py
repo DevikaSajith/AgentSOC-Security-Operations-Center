@@ -12,7 +12,7 @@ MONITOR_RULES_FILE = "monitor_rules.yaml"
 
 INDICATORS = ("high_severity", "suspicious_event_type", "untrusted_source_ip",
               "sensitive_resource", "principal_ip_change", "privileged_principal",
-              "correlated_group")
+              "correlated_group", "ml_threat_predicted")
 
 
 class _Strict(BaseModel):

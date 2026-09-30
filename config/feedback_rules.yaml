@@ -1,0 +1,27 @@
+# AgentSOC - Feedback & Learning rules (loaded by backend/app/agents/feedback/config.py).
+# The Feedback Engine is deterministic: it classifies outcomes and RECOMMENDS. It never executes anything.
+
+# A human may request at most this many retries per incident (each retry is only a new remediation PROPOSAL
+# that still needs human approval, the kill switch and the ToolExecutor).
+retry_limit: 2
+
+# verification status -> inferred feedback type
+feedback_by_verification:
+  verified: successful_response
+  failed: failed_response
+  partial: partial_response
+  unknown: insufficient_evidence
+
+# failure reason -> recommendation. "with_retries_left" is used while retry_count < retry_limit,
+# "when_exhausted" afterwards.
+recommendations:
+  execution_failure:          {with_retries_left: retry_same_action,    when_exhausted: request_human_review}
+  expected_state_not_reached: {with_retries_left: retry_same_action,    when_exhausted: request_human_review}
+  state_regression:           {with_retries_left: retry_same_action,    when_exhausted: request_human_review}
+  wrong_target:               {with_retries_left: reinvestigate,        when_exhausted: request_human_review}
+  wrong_action:               {with_retries_left: alternative_action,   when_exhausted: request_human_review}
+  insufficient_evidence:      {with_retries_left: request_human_review, when_exhausted: request_human_review}
+  unknown:                    {with_retries_left: request_human_review, when_exhausted: request_human_review}
+partial_response: {with_retries_left: alternative_action, when_exhausted: request_human_review}
+successful_response: no_further_action
+regression_detected: {with_retries_left: retry_same_action, when_exhausted: monitor_resource}

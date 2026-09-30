@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -6,18 +6,20 @@ import { Link, Route, Switch, useLocation, useParams, Router as WouterRouter } f
 import {
   Activity, AlertCircle, AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, BarChart3,
   Bell, Bot, Check, CheckCircle2, ChevronRight, CircleDot, Cloud,
-  Code2, Database, Download, ExternalLink, FileSearch, Filter, Fingerprint, GitBranch,
+  Code2, Cpu, Database, Download, ExternalLink, FileSearch, Filter, Fingerprint, GitBranch,
   History, KeyRound, LayoutDashboard, LockKeyhole, Menu,
   Play, RefreshCw, Search, Server, ShieldAlert, ShieldCheck, SlidersHorizontal,
   Terminal, X, Zap
 } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
 import {
-  type Agent, type Approval, type AuditEntry, type Incident, type SecurityEvent, type TriageInfo, type InvestigationInfo, type ComplianceInfo, type RemediationInfo, type VerificationInfo,
+  type Agent, type Approval, type AuditEntry, type Incident, type SecurityEvent, type TriageInfo, type InvestigationInfo, type ComplianceInfo, type RemediationInfo, type VerificationInfo, type MLPredictionInfo,
   seedAudit
 } from '@/data';
 import {
   type CloudState, type DashboardData, type DashboardStats, type DataMode, type ComplianceRunSummary, type RemediationRunSummary, type VerificationRunSummary, type InvestigationRunSummary, type MonitorRunSummary, type ScenarioResult, type TriageRunSummary,
+  type LearningRecordInfo, type LearningStats, type MlMetrics, type MlStatus,
+  getLearning, getLearningStats, getMlMetrics, getMlStatus, requestRetry, runFeedback, submitFeedback,
   demoData, loadDashboard, decideApproval, resetEnvironment, runCompliance, runInvestigation, runRemediation, runVerification, runMonitor, runScenario, runTriage
 } from '@/lib/api';
 
@@ -423,6 +425,99 @@ function VerificationPanel({ verification, remediation, lastRun, running, onRun 
   </Panel>;
 }
 
+
+/* ------------------------------------------------------------- Phase 8 / 9 panels */
+const AppCtx = createContext<{ notify: (title: string, message: string) => void; reload: () => Promise<void> }>({ notify: () => undefined, reload: async () => undefined });
+const pct = (value: number) => `${Math.round(value * 100)}%`;
+const RISK_KIND: Record<string, string> = { high: 'critical', medium: 'high', low: 'active' };
+const FEEDBACK_KIND: Record<string, string> = { successful_response: 'active', failed_response: 'critical', partial_response: 'high', insufficient_evidence: 'review', regression_detected: 'critical', retry_requested: 'review' };
+const RECOMMENDATION_TEXT: Record<string, string> = {
+  retry_same_action: 'A human may request a retry (a new proposal that still needs approval).', alternative_action: 'Consider a different remediation action.',
+  reinvestigate: 'Re-investigate the incident before acting again.', request_human_review: 'A human should review this response.',
+  keep_incident_open: 'Keep the incident open.', monitor_resource: 'Keep monitoring the resource.', no_further_action: 'No further action is recommended.',
+};
+
+function MLPanel({ ml }: { ml: MLPredictionInfo | null }) {
+  return <Panel title="ML Threat Analysis" meta="ML PREDICTION · DECISION SUPPORT">
+    <div className="panel-body" data-testid="panel-ml">
+      {!ml ? <p className="page-subtitle" style={{ margin: 0 }} data-testid="ml-none">No ML prediction is attached to this incident (no active model when the Monitor ran).</p> : <>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}><Badge kind={RISK_KIND[ml.riskLevel] ?? ''}>{ml.riskLevel.toUpperCase()} RISK</Badge><span className="mono muted">ML Prediction · not a confirmed attack</span></div>
+        <div className="kv-list">{[['Prediction', label(ml.prediction)], ['Threat probability', pct(ml.threatProbability)], ['Predicted-class probability', pct(ml.predictionProbability)], ['Risk level', ml.riskLevel.toUpperCase()], ['Model', `${ml.modelType.replace('Classifier', '')} ${ml.modelVersion}`], ['Feature set / data', `${ml.featureVersion} · ${ml.dataSource}`]].map(([key, value]) => <div className="kv" key={key}><span className="key">{key}</span><span className="val mono" data-testid={`ml-${key.toLowerCase().replace(/[^a-z]+/g, '-')}`}>{value}</span></div>)}</div>
+        <div className="eyebrow" style={{ marginTop: 12 }}>Signals · the model's most influential active features</div>
+        {ml.features.map(f => <div key={f.name} className="mono" style={{ marginTop: 4 }}>• {f.description} <span className="muted">= {f.value}</span></div>)}
+        <p className="mono muted" style={{ margin: '12px 0 0', overflowWrap: 'anywhere' }}>{ml.note}</p>
+      </>}
+    </div>
+  </Panel>;
+}
+
+function FeedbackPanel({ incidentId, verification, remediation }: { incidentId: string; verification: VerificationInfo | null; remediation: RemediationInfo | null }) {
+  const { notify, reload } = useContext(AppCtx);
+  const [records, setRecords] = useState<LearningRecordInfo[]>([]); const [busy, setBusy] = useState(false); const [retryLimit, setRetryLimit] = useState<number | null>(null);
+  const load = useCallback(async () => { try { setRecords(await getLearning(incidentId)); const stats = await getLearningStats(); setRetryLimit(stats?.service.retry_limit ?? null); } catch { setRecords([]); } }, [incidentId]);
+  useEffect(() => { void load(); }, [load, verification?.runId]);
+  const outcome = records.find(r => r.feedback !== 'retry_requested' && r.autoFeedback !== 'retry_requested' && r.autoFeedback !== 'regression_detected') ?? null;
+  const regression = records.find(r => r.autoFeedback === 'regression_detected' && r.previousRunId === null && r.retryCount === 0) ?? null;
+  const retries = records.filter(r => r.feedback === 'retry_requested');
+  const limit = retryLimit ?? retries[0]?.retryLimit ?? 2;
+  const canRetry = verification !== null && remediation !== null && (verification.status !== 'verified' || regression !== null) && retries.length < limit;
+  const act = async (fn: () => Promise<void>) => { setBusy(true); try { await fn(); } finally { setBusy(false); } };
+  const run = () => act(async () => { const r = await runFeedback(incidentId); if (r.ok && r.records.length) notify(r.regression ? 'Regression detected' : 'Learning record written', r.regression ? `${incidentId}: a verified resource is insecure again. Nothing was remediated automatically.` : `${incidentId}: ${label(r.records[0].feedback)}; recommendation ${label(r.records[0].recommendation)}.`); else notify('Feedback service skipped', r.message || label(r.outcome)); await load(); });
+  const verdict = (feedback: 'correct' | 'incorrect' | 'partially_correct' | 'needs_review') => act(async () => { if (!outcome) return; const r = await submitFeedback(outcome.id, feedback); notify(r.ok ? 'Feedback recorded' : 'Feedback not recorded', r.ok ? `Your verdict (${label(feedback)}) overrides the inferred feedback.` : r.message); await load(); });
+  const retry = () => act(async () => { const r = await requestRetry(incidentId, 'analyst requested a retry'); notify(r.ok ? 'Retry requested' : 'Retry not possible', r.ok ? `Retry ${r.retryCount}/${r.retryLimit}: a new remediation PROPOSAL was created (${label(r.remediationOutcome ?? 'no proposal')}). Nothing was executed; approval is still required.` : r.message); await load(); await reload(); });
+  const stat = (key: string, value: string | number | null | undefined) => <div className="kv" key={key}><span className="key">{key}</span><span className="val mono">{value ?? '—'}</span></div>;
+  return <Panel title="Feedback & Learning" meta="DETERMINISTIC BACKEND SERVICE · NOT AN LLM" actions={<button className="button primary" style={{ minHeight: 30, ...(verification ? {} : { opacity: 0.45, cursor: 'not-allowed' }) }} onClick={run} disabled={busy || !verification} data-testid="button-run-feedback">{busy ? <RefreshCw size={13} className="spin" /> : <Play size={13} />}Run feedback service</button>}>
+    <div className="panel-body" data-testid="panel-feedback">
+      {!verification && <p className="mono" style={{ margin: '0 0 10px', color: '#e7cf63' }} data-testid="feedback-not-ready">Verification required before the outcome can be recorded.</p>}
+      {verification && !outcome && <p className="page-subtitle" style={{ margin: 0 }}>Classifies the verification outcome, analyses a failure with deterministic rules, and recommends recovery. It only recommends: any action still needs human approval, the kill switch and the ToolExecutor.</p>}
+      {regression && <div className="error-box" style={{ marginBottom: 10 }} data-testid="feedback-regression"><strong>Regression detected</strong><div style={{ marginTop: 6 }}>The remediation was verified, but the resource no longer has the expected state. It was NOT remediated again automatically. {RECOMMENDATION_TEXT[regression.recommendation]}</div></div>}
+      {outcome && <div data-testid="feedback-result">
+        <div className="kv-list">
+          {stat('Agent decision', `${outcome.action ? label(outcome.action) : '—'} on ${outcome.target ?? '—'}${outcome.providers.remediation ? ` (${outcome.providers.remediation})` : ''}`)}
+          {stat('Remediation', remediation ? label(remediation.execution.status) : '—')}
+          {stat('Verification', outcome.verificationStatus ? label(outcome.verificationStatus) : '—')}
+          <div className="kv"><span className="key">Feedback</span><span className="val"><Badge kind={FEEDBACK_KIND[outcome.feedback] ?? ''}>{label(outcome.feedback)}</Badge>{outcome.humanFeedback && <span className="mono muted"> · analyst: {label(outcome.humanFeedback)} (inferred: {label(outcome.autoFeedback)})</span>}</span></div>
+          {stat('Failure reason', outcome.failureReason ? label(outcome.failureReason) : 'none')}
+          {stat('Recommendation', label(outcome.recommendation))}
+          {stat('Retries used', `${retries.length} / ${limit}`)}
+        </div>
+        <p className="mono muted" style={{ margin: '8px 0 0' }} data-testid="feedback-recommendation-text">{RECOMMENDATION_TEXT[outcome.recommendation]}</p>
+        <div className="eyebrow" style={{ marginTop: 12 }}>Analyst feedback · overrides the inferred type</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>{(['correct', 'incorrect', 'partially_correct', 'needs_review'] as const).map(v => <button key={v} className={`button ${outcome.humanFeedback === v ? 'primary' : 'ghost'}`} style={{ minHeight: 30 }} disabled={busy} onClick={() => verdict(v)} data-testid={`button-feedback-${v}`}>{v === 'correct' ? 'Correct' : v === 'incorrect' ? 'Incorrect' : v === 'partially_correct' ? 'Partially Correct' : 'Needs Review'}</button>)}</div>
+      </div>}
+      {canRetry && <div style={{ marginTop: 14 }}><button className="button" disabled={busy} onClick={retry} data-testid="button-request-retry"><RefreshCw size={13} />Request retry ({retries.length}/{limit} used)</button><span className="mono muted" style={{ marginLeft: 10 }}>creates a new remediation proposal only — it needs your approval</span></div>}
+      {verification && !canRetry && verification.status !== 'verified' && retries.length >= limit && <p className="mono" style={{ margin: '12px 0 0', color: '#e7cf63' }} data-testid="retry-limit-reached">Retry limit reached ({limit}). A human must decide how to proceed.</p>}
+      {retries.map(r => <div key={r.id} className="mono muted" style={{ marginTop: 6, overflowWrap: 'anywhere' }} data-testid="retry-record">↻ retry {r.retryCount}/{r.retryLimit} · previous run {r.previousRunId} · {r.retryRunId ? `new proposal run ${r.retryRunId}` : 'no proposal yet'} · {r.retryReason}</div>)}
+    </div>
+  </Panel>;
+}
+
+function ServiceCards() {
+  const [stats, setStats] = useState<LearningStats | null>(null); const [ml, setMl] = useState<MlStatus | null>(null); const [metrics, setMetrics] = useState<MlMetrics | null>(null);
+  useEffect(() => { void (async () => { setStats(await getLearningStats()); const status = await getMlStatus(); setMl(status); setMetrics(status?.available ? await getMlMetrics() : null); })(); }, []);
+  const l = stats?.learning; const perf = stats?.performance;
+  const card = (key: string, value: string | number, meta: string, icon: any, accent?: string) => <StatCard key={key} label={key} value={String(value)} meta={meta} icon={icon} accent={accent} />;
+  return <div style={{ marginTop: 14 }}>
+    <Panel title="Feedback & Learning" meta="DETERMINISTIC BACKEND SERVICE · NOT AN LLM AGENT"><div className="panel-body" data-testid="panel-learning-stats">
+      {!l ? <p className="mono muted">Learning statistics are not available (backend unreachable).</p> : <>
+        <div className="grid-4">{[card('Learning records', l.total_learning_records, 'structured, no prompts or secrets', Database), card('Successful responses', l.successful_responses, 'verified', CheckCircle2, 'lime'), card('Failed responses', l.failed_responses, `${l.partial_responses} partial · ${l.insufficient_evidence} unknown`, AlertTriangle, 'amber'), card('Regressions', l.regressions, 'verified, then insecure again', ShieldAlert)]}</div>
+        <div className="grid-4" style={{ marginTop: 12 }}>{[card('Human corrections', l.human_corrections, `${l.human_feedback_given} analyst verdict(s)`, Check, 'cyan'), card('Retry requests', l.retry_requests, `limit ${stats?.service.retry_limit ?? '—'} per incident`, RefreshCw), card('Verification success', perf?.verification_success_rate == null ? '—' : pct(perf.verification_success_rate), `${perf?.verification_runs_with_a_verdict ?? 0} verdict(s) in agent runs`, ShieldCheck, 'lime'), card('Service type', 'BACKEND', 'deterministic · recommends only', LockKeyhole, 'amber')]}</div>
+        <div className="eyebrow" style={{ marginTop: 14 }}>Agent performance · from the existing agent_runs history only</div>
+        <div className="table-wrap"><table className="data-table"><thead><tr><th>Agent</th><th>Runs</th><th>Successful</th><th>Failed</th><th>Partial</th><th>Avg time (s)</th></tr></thead><tbody>{Object.entries(perf?.agents ?? {}).map(([name, a]) => <tr key={name}><td>{name}</td><td className="mono">{a.total_runs}</td><td className="mono">{a.successful_runs}</td><td className="mono">{a.failed_runs}</td><td className="mono">{a.partial_runs}</td><td className="mono">{a.average_execution_time_seconds ?? '—'}</td></tr>)}</tbody></table></div>
+      </>}
+    </div></Panel>
+    <div style={{ height: 14 }} />
+    <Panel title="ML Threat Predictor" meta="ML PREDICTION ENGINE · NOT AN AUTONOMOUS AGENT"><div className="panel-body" data-testid="panel-ml-engine">
+      {!ml ? <p className="mono muted">ML status is not available (backend unreachable).</p> : <>
+        <div className="grid-4">{[card('Status', ml.available ? 'READY' : 'NO MODEL', ml.error ?? `${ml.kind}`, Bot, ml.available ? 'lime' : 'amber'), card('Active model', ml.active_version ?? '—', `${ml.versions} version(s) stored`, Cpu), card('Training data', ml.dataset_size ? String(ml.dataset_size.total) : '—', ml.data_source ?? 'simulator-generated', Database, 'cyan'), card('Authority', 'PREDICT ONLY', 'cannot create incidents or act', LockKeyhole, 'amber')]}</div>
+        {metrics && <><div className="eyebrow" style={{ marginTop: 14 }}>Held-out evaluation · {metrics.evaluation_scope}</div>
+          <div className="grid-4" style={{ marginTop: 8 }}>{[card('Accuracy', pct(metrics.metrics.accuracy), `${metrics.metrics.test_samples} test samples`, ShieldCheck), card('Threat precision', pct(metrics.metrics.threat_detection.precision), `${metrics.metrics.threat_detection.false_positives} false positive(s)`, AlertTriangle, 'amber'), card('Threat recall', pct(metrics.metrics.threat_detection.recall), `${metrics.metrics.threat_detection.false_negatives} false negative(s)`, ShieldAlert, 'lime'), card('Macro F1', pct(metrics.metrics.macro.f1), 'across 6 classes', Activity, 'cyan')]}</div>
+          <p className="mono muted" style={{ margin: '10px 0 0' }} data-testid="ml-limitation">⚠ {metrics.limitations[0]} {metrics.limitations[1]}</p></>}
+      </>}
+    </div></Panel>
+  </div>;
+}
+
 function IncidentDetail({ incidents, onAction, onToast, onRunTriage, onRunInvestigation, onRunCompliance, onRunRemediation, onDecideApproval, onRunVerification }: { incidents: Incident[]; onAction: (id: string, action: string) => void; onToast: (title: string, message: string) => void; onRunTriage: (incidentId: string) => Promise<TriageRunSummary | null>; onRunInvestigation: (incidentId: string) => Promise<InvestigationRunSummary | null>; onRunCompliance: (incidentId: string) => Promise<ComplianceRunSummary | null>; onRunRemediation: (incidentId: string) => Promise<RemediationRunSummary | null>; onDecideApproval: (approvalId: string, decision: 'approve' | 'reject' | 'execute') => Promise<void>; onRunVerification: (incidentId: string) => Promise<VerificationRunSummary | null> }) {
   const [triageRun, setTriageRun] = useState<TriageRunSummary | null>(null); const [triaging, setTriaging] = useState(false);
   const [invRun, setInvRun] = useState<InvestigationRunSummary | null>(null); const [investigating, setInvestigating] = useState(false);
@@ -492,8 +587,10 @@ function IncidentDetail({ incidents, onAction, onToast, onRunTriage, onRunInvest
         {d && <CompliancePanel compliance={d.compliance} investigationRunId={d.investigation?.runId ?? null} lastRun={cmpRun} running={assessing} investigated={d.investigation !== null} onRun={async () => { setAssessing(true); setCmpRun(await onRunCompliance(item.id)); setAssessing(false); }} />}
         {d && <RemediationPanel remediation={d.remediation} complianceRunId={d.compliance?.runId ?? null} lastRun={remRun} running={planning} assessed={d.compliance !== null && d.compliance.basedOnInvestigationRun === (d.investigation?.runId ?? null)} deciding={deciding} onRun={async () => { setPlanning(true); setRemRun(await onRunRemediation(item.id)); setPlanning(false); }} onDecide={async (approvalId, decision) => { setDeciding(true); await onDecideApproval(approvalId, decision); setDeciding(false); }} />}
         {d && <VerificationPanel verification={d.verification} remediation={d.remediation} lastRun={verRun} running={verifying} onRun={async () => { setVerifying(true); setVerRun(await onRunVerification(item.id)); setVerifying(false); }} />}
+        {d && <FeedbackPanel incidentId={item.id} verification={d.verification} remediation={d.remediation} />}
       </div>
       <div className="detail-stack">
+        {d && <MLPanel ml={d.ml} />}
         {d && <TriagePanel triage={d.triage} lastRun={triageRun} running={triaging} relatedEventIds={d.relatedEventIds} onRun={async () => { setTriaging(true); setTriageRun(await onRunTriage(item.id)); setTriaging(false); }} />}
         <Panel title="Response actions" meta={d ? 'AVAILABLE WITH LATER AGENTS' : undefined}>
           <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -532,7 +629,7 @@ function AgentsPage({ agents, mode }: { agents: Agent[]; mode: DataMode }) {
   const live = mode === 'live'; const implemented = agents.filter(a => a.implemented).length;
   // live: Telemetry + implemented agents are real stages; the rest are not built yet
   const liveDone = (i: number) => i === 0 || Boolean(agents[i - 1]?.implemented);
-  return <><PageHead eyebrow="Autonomy / five specialists" title="Agent Network" subtitle="The specialized reasoning layer that moves an incident from signal to controlled response." actions={<Badge kind="active">{live ? `${implemented} of ${agents.length} agents implemented` : `${agents.length} agents online`}</Badge>} /><div className="agent-grid">{agents.map(agent => <AgentCard key={agent.id} agent={agent} />)}</div><div style={{ marginTop: 14 }}><Panel title="Pipeline contract" meta="INTER-AGENT HANDOFFS"><div className="pipeline">{['Telemetry', 'Monitor', 'Triage', 'Investigator', 'Compliance', 'Remediation'].map((step, i) => { const done = live ? liveDone(i) : i < 3; return <div className="pipeline-step" key={step}><div className={`pipeline-node ${done ? 'done' : !live && i === 3 ? 'current' : ''}`}>{done ? <Check size={15} /> : <GitBranch size={15} />}</div><div className="pipeline-label">{step}</div><div className="pipeline-detail">{live && !done ? 'not implemented' : i === 5 ? 'human gate' : 'structured JSON'}</div></div>; })}</div></Panel></div></>;
+  return <><PageHead eyebrow="Autonomy / six specialists" title="Agent Network" subtitle="The specialized reasoning layer that moves an incident from signal to controlled response." actions={<Badge kind="active">{live ? `${implemented} of ${agents.length} agents implemented` : `${agents.length} agents online`}</Badge>} /><div className="agent-grid">{agents.map(agent => <AgentCard key={agent.id} agent={agent} />)}</div>{live && <ServiceCards />}<div style={{ marginTop: 14 }}><Panel title="Pipeline contract" meta="INTER-AGENT HANDOFFS"><div className="pipeline">{['Telemetry', 'Monitor', 'Triage', 'Investigator', 'Compliance', 'Remediation'].map((step, i) => { const done = live ? liveDone(i) : i < 3; return <div className="pipeline-step" key={step}><div className={`pipeline-node ${done ? 'done' : !live && i === 3 ? 'current' : ''}`}>{done ? <Check size={15} /> : <GitBranch size={15} />}</div><div className="pipeline-label">{step}</div><div className="pipeline-detail">{live && !done ? 'not implemented' : i === 5 ? 'human gate' : 'structured JSON'}</div></div>; })}</div></Panel></div></>;
 }
 const agentBadgeKind = (status: Agent['status']) => (status === 'Active' || status === 'Ready' ? 'active' : 'idle');
 function AgentCard({ agent }: { agent: Agent }) { return <Link href={`/agents/${agent.id}`} className="panel agent-card" data-testid={`card-agent-${agent.id}`}><div className="agent-card-head"><div style={{ display: 'flex', alignItems: 'center', gap: 11 }}><div className="agent-emblem"><Bot size={18} /></div><div><div className="agent-name">{agent.name}</div><div className="mono muted" style={{ marginTop: 4 }}>agent/{agent.id}</div></div></div><Badge kind={agentBadgeKind(agent.status)}>{agent.status}</Badge></div><p className="agent-purpose">{agent.purpose}</p><div className="tool-row">{agent.tools.map(tool => <span className="tool" key={tool}>{tool}</span>)}</div><div className="agent-foot"><span>{agent.stats ? (agent.id === 'triage' || agent.id === 'investigator' || agent.id === 'compliance' || agent.id === 'remediation' || agent.id === 'verification' ? `${agent.stats.runs} runs · ${agent.stats.successfulRuns ?? 0} ok · ${agent.stats.failedRuns ?? 0} failed` : `${(agent.stats.eventsProcessed ?? 0).toLocaleString()} events · ${agent.stats.incidentsCreated ?? 0} incidents`) : `${agent.tasks.toLocaleString()} tasks`}</span><span>{agent.lastActivity}</span></div></Link>; }
@@ -599,6 +696,7 @@ function MonitorRunPanel({ scenario, monitor, monitorRunning, onRunMonitor, tria
       <div className="eyebrow" style={{ marginBottom: 8 }}>Step 7 · Verification Agent on {incidents[0][0]} · execution result → verification → incident status</div>
       <div className="mono muted" style={{ marginBottom: 8 }} data-testid="simulator-verification-summary">Remediation execution: {live.remediation ? label(live.remediation.execution.status) : 'not run'} · Verification: {live.verification ? label(live.verification.status) : 'not run'}</div>
       <VerificationPanel verification={live.verification} remediation={live.remediation} lastRun={verRun} running={verifying} onRun={() => onRunVerification(incidents[0][0])} />
+      <div style={{ marginTop: 14 }} data-testid="panel-simulator-feedback"><div className="eyebrow" style={{ marginBottom: 8 }}>Step 8 · Feedback &amp; Learning on {incidents[0][0]} · outcome → failure analysis → recommendation → retry request</div><FeedbackPanel incidentId={incidents[0][0]} verification={live.verification} remediation={live.remediation} /></div>
     </div>; })()}
   </>;
 }
@@ -724,7 +822,7 @@ function App() {
     } catch { notify('Monitor Agent failed', 'The backend could not run the Monitor Agent.'); return null; }
   };
   const onSimulateDemo = (scenario: string) => { const title = scenario === 'iam' ? 'Simulated IAM privilege escalation' : scenario === 's3' ? 'Simulated public S3 exposure' : scenario === 'cred' ? 'Simulated credential misuse' : 'Simulated EC2 command & control'; const newIncident: Incident = { id: 'INC-005', title, severity: 'high', source: 'Attack Simulator', resource: scenario === 's3' ? 's3://sim-prod-exports' : scenario === 'ec2' ? 'i-0simulatedc2' : scenario === 'cred' ? 'arn:aws:iam::4821:user/alice' : 'arn:aws:iam::4821:user/sim-attacker', currentAgent: 'Triage Agent', status: 'Investigating', created: new Date().toISOString().slice(0, 19).replace('T', ' '), description: 'Generated from the AgentSOC attack simulator to validate autonomous detection and response.', confidence: 92, sourceIp: '198.51.100.42', user: 'sim-attacker' }; setIncidents(items => [newIncident, ...items.filter(item => item.id !== 'INC-005')]); setEvents(items => [{ id: 'EVT-SIM-005', timestamp: new Date().toISOString().slice(11, 23), type: 'SimulatedThreatSignal', user: 'sim-attacker', sourceIp: '198.51.100.42', resource: newIncident.resource, risk: 'high' }, ...items]); notify('Scenario completed', '18 events emitted and INC-005 created in the incident queue.'); };
-  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Shell onRefresh={onRefresh} refreshTick={refreshTick} mode={data.mode} pendingApprovals={data.approvals.filter(a => a.status === 'Pending').length}><RouterContent data={data} onToast={notify} onAction={onAction} onDecision={onDecision} onSimulate={onSimulate} onRunMonitor={onRunMonitor} onRunTriage={onRunTriage} onRunInvestigation={onRunInvestigation} onRunCompliance={onRunCompliance} onRunRemediation={onRunRemediation} onDecideApproval={onDecideApproval} onRunVerification={onRunVerification} onReset={onReset} onRefresh={onRefresh} /></Shell><Toast toast={toast} onClose={() => setToast(null)} /></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
+  return <AppCtx.Provider value={{ notify, reload: async () => { await reload(); } }}><QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Shell onRefresh={onRefresh} refreshTick={refreshTick} mode={data.mode} pendingApprovals={data.approvals.filter(a => a.status === 'Pending').length}><RouterContent data={data} onToast={notify} onAction={onAction} onDecision={onDecision} onSimulate={onSimulate} onRunMonitor={onRunMonitor} onRunTriage={onRunTriage} onRunInvestigation={onRunInvestigation} onRunCompliance={onRunCompliance} onRunRemediation={onRunRemediation} onDecideApproval={onDecideApproval} onRunVerification={onRunVerification} onReset={onReset} onRefresh={onRefresh} /></Shell><Toast toast={toast} onClose={() => setToast(null)} /></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider></AppCtx.Provider>;
 }
 
 export default App;

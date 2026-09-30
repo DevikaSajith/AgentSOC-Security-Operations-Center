@@ -21,6 +21,14 @@ from app.agents.investigator.agent import (
 )
 from app.agents.monitor.agent import MonitorAgent
 from app.agents.monitor.models import MonitorRunReport, MonitorRunRequest
+from app.agents.feedback.engine import (
+    FeedbackEngine,
+    FeedbackRequestError,
+    FeedbackRunReport,
+    FeedbackRunRequest,
+    HumanFeedbackRequest,
+    LearningNotFoundError,
+)
 from app.agents.registry import AgentDescriptor, list_agents
 from app.agents.verification.agent import VerificationAgent, VerificationRunReport, VerificationRunRequest
 from app.agents.remediation.agent import RemediationAgent, RemediationRunReport, RemediationRunRequest
@@ -40,6 +48,7 @@ from app.api.deps import (
     get_compliance_agent,
     get_investigator_agent,
     get_monitor_agent,
+    get_feedback_engine,
     get_remediation_agent,
     get_remediation_executor,
     get_verification_agent,
@@ -54,7 +63,9 @@ from app.domain.events import SecurityEvent
 from app.domain.incident import AuditEntry, IncidentState
 from app.services.agent_runs import AgentRunService
 from app.services.approvals import ApprovalService, ApprovalView
+from app.domain.learning import LearningRecord
 from app.services.audit_service import AuditService
+from app.services.learning import LearningService
 from app.services.cloud_service import cloud_overview
 from app.services.event_service import EventService
 from app.services.incident_service import IncidentService
@@ -272,6 +283,108 @@ def run_monitor(body: MonitorRunRequest | None = None,
     """Run the Monitor Agent (deterministic, read-only). With no body it processes every
     stored event it has not processed yet. It calls no other agent."""
     return agent.run(body or MonitorRunRequest())
+
+
+class RetryHttpRequest(BaseModel):
+    """A human's request to retry a failed remediation. It only starts the EXISTING remediation planning
+    workflow (a proposal + a pending approval); nothing is executed."""
+
+    model_config = {"extra": "forbid"}
+    reason: str | None = Field(default=None, max_length=500)
+    allow_rule_based_fallback: bool = False
+
+
+class RetryReport(BaseModel):
+    retry: LearningRecord
+    remediation: dict[str, Any] | None
+    note: str
+
+
+def _feedback_call(action: Any, *args: Any) -> Any:
+    try:
+        return action(*args)
+    except LearningNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except FeedbackRequestError as exc:
+        raise HTTPException(409 if exc.code != "invalid_request" else 422, {"detail": str(exc), "code": exc.code}) from None
+
+
+@router.get("/learning")
+def list_learning(request: Request, incident_category: str | None = None, attack_type: str | None = None,
+                  remediation_action: str | None = None, verification_status: str | None = None,
+                  failure_reason: str | None = None, feedback_type: str | None = None,
+                  incident_id: str | None = None, limit: int = Query(100, ge=1, le=1000)) -> list[LearningRecord]:
+    """Historical learning records, newest first, filterable by category, attack type, action, verification
+    status, failure reason and feedback type."""
+    with ready_database(request).session() as session:
+        return LearningService(session).list(
+            incident_category=incident_category, attack_type=attack_type, remediation_action=remediation_action,
+            verification_status=verification_status, failure_reason=failure_reason, feedback_type=feedback_type,
+            incident_id=incident_id, limit=limit)
+
+
+@router.get("/learning/stats")
+def learning_stats(request: Request) -> dict[str, Any]:
+    """Learning-record counts plus agent performance computed from the existing agent_runs table."""
+    rules = request.app.state.feedback_rules
+    with ready_database(request).session() as session:
+        service = LearningService(session)
+        return {"service": {"name": "Feedback & Learning", "kind": "Deterministic Backend Service", "llm": False,
+                            "retry_limit": rules.retry_limit if rules else None},
+                "learning": service.stats(), "performance": service.agent_performance()}
+
+
+@router.get("/learning/{learning_id}")
+def get_learning(learning_id: str, request: Request) -> LearningRecord:
+    with ready_database(request).session() as session:
+        record = LearningService(session).get(learning_id)
+    if record is None:
+        raise HTTPException(404, f"learning record '{learning_id}' not found")
+    return record
+
+
+@router.post("/learning/feedback")
+def submit_feedback(body: HumanFeedbackRequest, engine: FeedbackEngine = Depends(get_feedback_engine)) -> LearningRecord:
+    """An analyst's verdict (correct / incorrect / partially_correct / needs_review) on a learning record. It
+    overrides the automatically inferred feedback type. Records nothing else and executes nothing."""
+    return _feedback_call(engine.submit_human_feedback, body)
+
+
+@router.post("/agents/feedback/run")
+def run_feedback(body: FeedbackRunRequest, incidents: IncidentService = Depends(get_incident_service),
+                 engine: FeedbackEngine = Depends(get_feedback_engine)) -> FeedbackRunReport:
+    """Classify the outcome of one incident's response into a learning record (deterministic), analyse a
+    failure, recommend recovery, and check a VERIFIED remediation for regression. Recommends only."""
+    if incidents.get(body.incident_id) is None:
+        raise HTTPException(404, f"incident '{body.incident_id}' not found")
+    return engine.run(body)
+
+
+@router.post("/incidents/{incident_id}/retry")
+def retry_incident(incident_id: str, request: Request, body: RetryHttpRequest | None = None,
+                   incidents: IncidentService = Depends(get_incident_service),
+                   engine: FeedbackEngine = Depends(get_feedback_engine)) -> RetryReport:
+    """A human requests a retry (limit and count enforced). The request is recorded and audited, then the
+    EXISTING remediation planning workflow runs: it produces a new proposal and a pending approval. Nothing
+    is executed here; approval, the kill switch and the ToolExecutor still apply."""
+    if incidents.get(incident_id) is None:
+        raise HTTPException(404, f"incident '{incident_id}' not found")
+    body = body or RetryHttpRequest()
+    record = _feedback_call(engine.request_retry, incident_id, body.reason)
+    remediation = None
+    try:
+        report = get_remediation_agent(request).run(RemediationRunRequest(
+            incident_id=incident_id, allow_rule_based_fallback=body.allow_rule_based_fallback))
+        remediation = {"run_id": report.run_id, "status": report.status.value, "outcome": report.outcome,
+                       "approval_id": report.approval.approval_id if report.approval else None,
+                       "errors": report.validation_errors[:3]}
+        record = engine.attach_retry_run(record.learning_id, report.run_id) or record
+    except HTTPException as exc:  # remediation policy missing: the retry stays recorded
+        remediation = {"run_id": None, "status": "failed", "outcome": "remediation_unavailable", "approval_id": None,
+                       "errors": [str(exc.detail)]}
+    return RetryReport(retry=record, remediation=remediation,
+                       note="A retry is only a new remediation PROPOSAL: it needs human approval, the kill switch and "
+                            "the ToolExecutor before anything changes.")
 
 
 @router.get("/tools")
